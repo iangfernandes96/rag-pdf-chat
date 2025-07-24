@@ -22,9 +22,10 @@ class VectorSettings(BaseModel):
 class LLMSettings(BaseModel):
     """LLM configuration settings."""
     ollama_url: str = "http://localhost:11434"
-    model_name: str = "mistral"
+    ollama_model: str = "mistral"
     temperature: float = 0.1
     max_tokens: int = 2048
+    timeout: int = 120
 
 
 class EmbeddingSettings(BaseModel):
@@ -53,7 +54,8 @@ class Settings:
         
         # Services
         self.database = DatabaseSettings(
-            url=os.getenv("DATABASE_URL", "postgresql://rag_user:rag_password@localhost:5432/rag_pdf_chat"),
+            url=os.getenv("DATABASE_URL", 
+                         "postgresql://rag_user:rag_password@localhost:5432/rag_pdf_chat"),
             echo=self.debug
         )
         
@@ -65,9 +67,10 @@ class Settings:
         
         self.llm = LLMSettings(
             ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434"),
-            model_name=os.getenv("OLLAMA_MODEL", "mistral"),
+            ollama_model=os.getenv("OLLAMA_MODEL", "mistral"),
             temperature=0.1,
-            max_tokens=2048
+            max_tokens=2048,
+            timeout=120
         )
         
         self.embedding = EmbeddingSettings(

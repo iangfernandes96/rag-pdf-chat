@@ -8,7 +8,7 @@ from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.models import (
     Distance, VectorParams, PointStruct,
-    Filter, FieldCondition, Match
+    Filter, FieldCondition, Match, FilterSelector
 )
 
 from .models import DocumentChunk
@@ -287,19 +287,17 @@ class VectorStore:
             await self.connect()
             
         try:
-            # Delete points with matching document_id
-            delete_filter = Filter(
-                must=[
-                    FieldCondition(
-                        key="document_id",
-                        match=Match(value=document_id)
-                    )
-                ]
-            )
-            
+            # Delete points with matching document_id using simple approach
             operation_info = await self.client.delete(
                 collection_name=self.collection_name,
-                points_selector=models.FilterSelector(filter=delete_filter),
+                points_selector=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="document_id",
+                            match=models.MatchValue(value=document_id)
+                        )
+                    ]
+                ),
                 wait=True
             )
             

@@ -12,6 +12,7 @@ dependencies = [
     "python-multipart>=0.0.6",
     "qdrant-client>=1.6.9",
     "psycopg2-binary>=2.9.7",
+    "asyncpg>=0.29.0",
     "langchain>=0.0.340",
     "langchain-community>=0.0.12",
     "python-dotenv>=1.0.0",

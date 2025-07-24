@@ -1,3 +1,0 @@
-This is a sample text file for testing.
-Since reportlab is not available, we're using a text file instead of a PDF.
-This will test the file handling and validation logic.
