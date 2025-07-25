@@ -3,7 +3,10 @@ RAG (Retrieval-Augmented Generation) service that orchestrates
 document processing, embedding, and similarity search.
 """
 
+import asyncio
 import logging
+import re
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -14,13 +17,151 @@ from .vector_store import VectorStore
 logger = logging.getLogger(__name__)
 
 
+class RAGError(Exception):
+    """Custom RAG error with context."""
+
+    pass
+
+
+class RAGValidator:
+    """Input validation for RAG operations."""
+
+    @staticmethod
+    def validate_search_params(query: str, limit: int, score_threshold: float) -> None:
+        """
+        Validate search parameters.
+
+        Args:
+            query: Search query text
+            limit: Maximum number of results
+            score_threshold: Minimum similarity score threshold
+
+        Raises:
+            RAGError: If parameters are invalid
+        """
+        if not query or not query.strip():
+            raise RAGError("Query cannot be empty")
+
+        if not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise RAGError("Limit must be between 1 and 100")
+
+        if (
+            not isinstance(score_threshold, int | float)
+            or not 0.0 <= score_threshold <= 1.0
+        ):
+            raise RAGError("Score threshold must be between 0.0 and 1.0")
+
+    @staticmethod
+    def validate_document_params(file_path: Path, original_filename: str) -> None:
+        """
+        Validate document processing parameters.
+
+        Args:
+            file_path: Path to the document file
+            original_filename: Original filename
+
+        Raises:
+            RAGError: If parameters are invalid
+        """
+        if not file_path or not file_path.exists():
+            raise RAGError("File path is invalid or file does not exist")
+
+        if not original_filename or not original_filename.strip():
+            raise RAGError("Original filename cannot be empty")
+
+
+class SnippetOptimizer:
+    """Optimized snippet generation with better context extraction."""
+
+    # Pre-compile regex patterns for better performance
+    SENTENCE_BOUNDARY = re.compile(r"[.!?]+\s+")
+    WORD_BOUNDARY = re.compile(r"\b")
+
+    @classmethod
+    def create_snippet(cls, content: str, query: str, max_length: int = 200) -> str:
+        """
+        Create an optimized snippet with intelligent context extraction.
+
+        Args:
+            content: Full content text
+            query: Search query
+            max_length: Maximum snippet length
+
+        Returns:
+            Snippet with query context
+        """
+        if len(content) <= max_length:
+            return content
+
+        # Normalize query and content for better matching
+        query_words = [word.lower().strip() for word in query.split() if word.strip()]
+        content_lower = content.lower()
+
+        # Find best position with sentence boundary awareness
+        best_pos = cls._find_best_snippet_position(
+            content, content_lower, query_words, max_length
+        )
+
+        # Extract snippet with proper boundaries
+        snippet = cls._extract_snippet_with_boundaries(content, best_pos, max_length)
+
+        return snippet
+
+    @classmethod
+    def _find_best_snippet_position(
+        cls, content: str, content_lower: str, query_words: list[str], max_length: int
+    ) -> int:
+        """Find the best position to start the snippet."""
+        best_pos = 0
+        max_score = 0
+
+        # Check positions at word boundaries for better context
+        for i in range(0, max(1, len(content) - max_length), 50):
+            snippet_text = content_lower[i : i + max_length]
+
+            # Calculate relevance score
+            score = sum(snippet_text.count(word) * len(word) for word in query_words)
+
+            # Bonus for sentence boundaries
+            if i == 0 or content[i - 1] in ".!?\n":
+                score += 10
+
+            if score > max_score:
+                max_score = score
+                best_pos = i
+
+        return best_pos
+
+    @classmethod
+    def _extract_snippet_with_boundaries(
+        cls, content: str, start_pos: int, max_length: int
+    ) -> str:
+        """Extract snippet with proper word boundaries."""
+        snippet = content[start_pos : start_pos + max_length]
+
+        # Clean up snippet boundaries
+        if start_pos > 0:
+            snippet = "..." + snippet
+        if start_pos + max_length < len(content):
+            snippet = snippet + "..."
+
+        return snippet
+
+
 class RAGService:
-    """Main service that orchestrates the RAG pipeline."""
+    """Main service that orchestrates the RAG pipeline with optimizations."""
 
     def __init__(self):
         self.ingestion_service = DocumentIngestionService()
         self.embedding_service = EmbeddingService()
         self.vector_store = VectorStore()
+        self.validator = RAGValidator()
+        self.snippet_optimizer = SnippetOptimizer()
+
+        # Query caching for performance optimization
+        self._query_cache: dict[str, dict[str, Any]] = {}
+        self._cache_ttl = timedelta(hours=1)  # Cache for 1 hour
+        self._max_cache_size = 1000  # Limit cache size
 
     async def initialize(self) -> bool:
         """
@@ -55,7 +196,7 @@ class RAGService:
         self, file_path: Path, original_filename: str
     ) -> dict[str, Any]:
         """
-        Process a document through the complete RAG pipeline.
+        Process a document through the complete RAG pipeline with optimizations.
 
         Args:
             file_path: Path to the document file
@@ -67,6 +208,9 @@ class RAGService:
         logger.info(f"Processing document: {original_filename}")
 
         try:
+            # Validate input parameters
+            self.validator.validate_document_params(file_path, original_filename)
+
             # Step 1: Ingest document (PDF parsing and chunking)
             ingestion_result = self.ingestion_service.ingest_document(
                 file_path, original_filename
@@ -75,21 +219,31 @@ class RAGService:
             if not ingestion_result.success:
                 return {
                     "success": False,
-                    "error": f"Document ingestion failed: {ingestion_result.error_message}",
+                    "error": (
+                        f"Document ingestion failed: "
+                        f"{ingestion_result.error_message}"
+                    ),
                     "stage": "ingestion",
                 }
 
             document = ingestion_result.document
             chunks = ingestion_result.chunks
 
-            # Step 2: Generate embeddings for chunks
+            if not document:
+                return {
+                    "success": False,
+                    "error": "Document ingestion returned None",
+                    "stage": "ingestion",
+                }
+
+            # Step 2: Generate embeddings for chunks (async optimization)
             logger.info(f"Generating embeddings for {len(chunks)} chunks")
-            embedding_results = self.embedding_service.embed_chunks(chunks)
+            embedding_results = await self.embedding_service.embed_chunks_async(chunks)
 
             if len(embedding_results) != len(chunks):
                 return {
                     "success": False,
-                    "error": "Embedding generation failed: mismatch in chunk count",
+                    "error": ("Embedding generation failed: mismatch in chunk count"),
                     "stage": "embedding",
                 }
 
@@ -116,7 +270,7 @@ class RAGService:
                 }
 
             # Step 4: Update chunks with embeddings
-            for chunk, embedding_result in zip(chunks, embedding_results, strict=False):
+            for chunk, embedding_result in zip(chunks, embedding_results, strict=True):
                 chunk.embedding = embedding_result.embedding
 
             logger.info(f"Successfully processed document: {original_filename}")
@@ -130,6 +284,9 @@ class RAGService:
                 "stats": self.ingestion_service.get_document_stats(document, chunks),
             }
 
+        except RAGError:
+            # Re-raise validation errors
+            raise
         except Exception as e:
             logger.error(f"Document processing failed: {str(e)}")
             return {
@@ -137,6 +294,62 @@ class RAGService:
                 "error": f"Unexpected error: {str(e)}",
                 "stage": "unknown",
             }
+
+    async def _get_query_embedding_cached(
+        self, query: str
+    ) -> tuple[list[float], float]:
+        """
+        Get query embedding with caching for performance optimization.
+
+        Args:
+            query: Search query text
+
+        Returns:
+            Tuple of (embedding_vector, generation_time)
+        """
+        # Create cache key
+        cache_key = f"query:{hash(query.strip().lower())}"
+        now = datetime.utcnow()
+
+        # Check cache first
+        if cache_key in self._query_cache:
+            cached_entry = self._query_cache[cache_key]
+            if now - cached_entry["timestamp"] < self._cache_ttl:
+                logger.debug(f"Cache hit for query: {query[:50]}...")
+                return cached_entry["embedding"], cached_entry["embed_time"]
+
+        # Generate embedding if not cached or expired
+        embedding, embed_time = self.embedding_service.generate_embedding(query)
+
+        # Cache the result (with size limit)
+        if len(self._query_cache) >= self._max_cache_size:
+            # Remove oldest entries
+            self._cleanup_cache()
+
+        self._query_cache[cache_key] = {
+            "embedding": embedding,
+            "embed_time": embed_time,
+            "timestamp": now,
+        }
+
+        logger.debug(f"Cached query embedding: {query[:50]}...")
+        return embedding, embed_time
+
+    def _cleanup_cache(self) -> None:
+        """Clean up old cache entries to maintain cache size limit."""
+        if len(self._query_cache) < self._max_cache_size:
+            return
+
+        # Remove oldest 20% of entries
+        sorted_entries = sorted(
+            self._query_cache.items(), key=lambda x: x[1]["timestamp"]
+        )
+
+        entries_to_remove = len(sorted_entries) // 5  # Remove 20%
+        for key, _ in sorted_entries[:entries_to_remove]:
+            del self._query_cache[key]
+
+        logger.debug(f"Cleaned up {entries_to_remove} cache entries")
 
     async def search_documents(
         self,
@@ -146,7 +359,7 @@ class RAGService:
         document_filter: str | None = None,
     ) -> dict[str, Any]:
         """
-        Search for relevant document chunks using semantic similarity.
+        Search for relevant document chunks using semantic similarity with optimizations.
 
         Args:
             query: Search query text
@@ -160,9 +373,12 @@ class RAGService:
         logger.info(f"Searching documents for query: '{query[:50]}...'")
 
         try:
-            # Generate embedding for query
-            query_embedding, embed_time = self.embedding_service.generate_embedding(
-                query
+            # Validate input parameters
+            self.validator.validate_search_params(query, limit, score_threshold)
+
+            # Generate embedding for query with caching
+            query_embedding, embed_time = await self._get_query_embedding_cached(
+                query.strip()
             )
 
             # Search similar chunks
@@ -175,15 +391,8 @@ class RAGService:
 
             logger.info(f"Found {len(similar_chunks)} relevant chunks")
 
-            # Enhance results with additional context if available
-            enhanced_results = []
-            for chunk_data in similar_chunks:
-                enhanced_result = {
-                    **chunk_data,
-                    "relevance_score": chunk_data["score"],
-                    "snippet": self._create_snippet(chunk_data["content"], query),
-                }
-                enhanced_results.append(enhanced_result)
+            # Enhance results with optimized snippet generation
+            enhanced_results = await self._enhance_search_results(similar_chunks, query)
 
             return {
                 "success": True,
@@ -196,8 +405,15 @@ class RAGService:
                     "score_threshold": score_threshold,
                     "document_filter": document_filter,
                 },
+                "cache_info": {
+                    "cached_queries": len(self._query_cache),
+                    "cache_hit": embed_time < 0.001,  # Very fast = cache hit
+                },
             }
 
+        except RAGError:
+            # Re-raise validation errors
+            raise
         except Exception as e:
             logger.error(f"Document search failed: {str(e)}")
             return {
@@ -205,6 +421,66 @@ class RAGService:
                 "error": f"Search failed: {str(e)}",
                 "query": query,
             }
+
+    async def _enhance_search_results(
+        self, similar_chunks: list[dict[str, Any]], query: str
+    ) -> list[dict[str, Any]]:
+        """
+        Enhance search results with optimized snippet generation.
+
+        Args:
+            similar_chunks: List of similar chunk data
+            query: Original search query
+
+        Returns:
+            List of enhanced results
+        """
+        enhanced_results = []
+
+        for chunk_data in similar_chunks:
+            # Use optimized snippet generation
+            snippet = self.snippet_optimizer.create_snippet(
+                chunk_data["content"], query
+            )
+
+            enhanced_result = {
+                **chunk_data,
+                "relevance_score": chunk_data["score"],
+                "snippet": snippet,
+                "query_match_quality": self._calculate_match_quality(
+                    chunk_data["content"], query
+                ),
+            }
+            enhanced_results.append(enhanced_result)
+
+        return enhanced_results
+
+    def _calculate_match_quality(self, content: str, query: str) -> float:
+        """
+        Calculate match quality score for better result ranking.
+
+        Args:
+            content: Chunk content
+            query: Search query
+
+        Returns:
+            Match quality score (0.0 to 1.0)
+        """
+        query_words = {word.lower().strip() for word in query.split()}
+        content_words = {word.lower() for word in content.split()}
+
+        if not query_words:
+            return 0.0
+
+        # Calculate word overlap
+        common_words = query_words.intersection(content_words)
+        word_overlap = len(common_words) / len(query_words)
+
+        # Bonus for exact phrase matches
+        content_lower = content.lower()
+        phrase_bonus = 0.2 if query.lower() in content_lower else 0.0
+
+        return min(1.0, word_overlap + phrase_bonus)
 
     async def get_document_context(
         self, chunk_ids: list[str], context_size: int = 1
@@ -219,18 +495,32 @@ class RAGService:
         Returns:
             List of context strings
         """
-        contexts = []
+        if not chunk_ids:
+            return []
 
-        for chunk_id in chunk_ids:
-            chunk_data = await self.vector_store.get_chunk_by_id(chunk_id)
-            if chunk_data:
-                # For now, return the chunk content
-                # In a full implementation, we'd get surrounding chunks
-                contexts.append(chunk_data["content"])
+        # Process multiple chunks efficiently
+        contexts = await asyncio.gather(
+            *[self._get_single_chunk_context(chunk_id) for chunk_id in chunk_ids],
+            return_exceptions=True,
+        )
+
+        # Handle any exceptions and return valid contexts
+        result_contexts = []
+        for i, context in enumerate(contexts):
+            if isinstance(context, Exception):
+                logger.warning(
+                    f"Failed to get context for chunk {chunk_ids[i]}: {context}"
+                )
+                result_contexts.append("")
             else:
-                contexts.append("")
+                result_contexts.append(context)
 
-        return contexts
+        return result_contexts
+
+    async def _get_single_chunk_context(self, chunk_id: str) -> str:
+        """Get context for a single chunk."""
+        chunk_data = await self.vector_store.get_chunk_by_id(chunk_id)
+        return chunk_data["content"] if chunk_data else ""
 
     async def delete_document(self, document_id: str) -> bool:
         """
@@ -242,6 +532,9 @@ class RAGService:
         Returns:
             True if successful
         """
+        if not document_id or not document_id.strip():
+            raise RAGError("Document ID cannot be empty")
+
         logger.info(f"Deleting document: {document_id}")
 
         try:
@@ -261,7 +554,7 @@ class RAGService:
 
     async def get_system_status(self) -> dict[str, Any]:
         """
-        Get status of all system components.
+        Get status of all system components with performance metrics.
 
         Returns:
             Dictionary with system status information
@@ -283,58 +576,47 @@ class RAGService:
                     "healthy": vector_healthy,
                     "url": self.vector_store.url,
                 },
-                "system_healthy": embedding_info.get("loaded", False)
-                and vector_healthy,
+                "cache_status": {
+                    "query_cache_size": len(self._query_cache),
+                    "cache_ttl_hours": self._cache_ttl.total_seconds() / 3600,
+                    "max_cache_size": self._max_cache_size,
+                },
+                "system_healthy": (
+                    embedding_info.get("loaded", False) and vector_healthy
+                ),
             }
 
         except Exception as e:
             logger.error(f"Failed to get system status: {str(e)}")
             return {"error": str(e), "system_healthy": False}
 
-    def _create_snippet(self, content: str, query: str, max_length: int = 200) -> str:
+    async def clear_cache(self) -> dict[str, Any]:
         """
-        Create a highlighted snippet from content based on query.
-
-        Args:
-            content: Full content text
-            query: Search query
-            max_length: Maximum snippet length
+        Clear query cache and return cache statistics.
 
         Returns:
-            Snippet with query context
+            Dictionary with cache clearing results
         """
-        if len(content) <= max_length:
-            return content
+        cache_size_before = len(self._query_cache)
+        self._query_cache.clear()
 
-        # Simple snippet creation - find query terms in content
-        query_words = query.lower().split()
-        content_lower = content.lower()
+        logger.info(f"Cleared query cache ({cache_size_before} entries)")
 
-        # Find best position to start snippet
-        best_pos = 0
-        max_matches = 0
-
-        for i in range(0, len(content) - max_length, 20):
-            snippet = content_lower[i : i + max_length]
-            matches = sum(1 for word in query_words if word in snippet)
-            if matches > max_matches:
-                max_matches = matches
-                best_pos = i
-
-        snippet = content[best_pos : best_pos + max_length]
-
-        # Clean up snippet boundaries
-        if best_pos > 0:
-            snippet = "..." + snippet
-        if best_pos + max_length < len(content):
-            snippet = snippet + "..."
-
-        return snippet
+        return {
+            "success": True,
+            "entries_cleared": cache_size_before,
+            "cache_size_after": len(self._query_cache),
+        }
 
     async def cleanup(self) -> None:
         """Clean up resources."""
         try:
+            # Clean up embedding service
             self.embedding_service.cleanup()
+
+            # Clear cache
+            self._query_cache.clear()
+
             logger.info("RAG service cleaned up")
         except Exception as e:
             logger.error(f"Error during RAG service cleanup: {str(e)}")

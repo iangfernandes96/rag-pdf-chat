@@ -3,8 +3,13 @@ LLM service for generating responses using Ollama.
 Handles prompt formatting, model interaction, and response generation.
 """
 
+import asyncio
+import json
 import logging
 import time
+from collections.abc import AsyncIterator
+from datetime import datetime, timedelta
+from functools import wraps
 from typing import Any
 
 import httpx
@@ -14,39 +19,169 @@ from .config import settings
 logger = logging.getLogger(__name__)
 
 
-class PromptTemplate:
-    """Templates for RAG prompts."""
+class LLMError(Exception):
+    """Custom LLM error with context."""
 
-    RAG_SYSTEM_PROMPT = """You are a helpful assistant that answers questions based on provided context from documents.
+    pass
 
-Guidelines:
-- Use ONLY the provided context to answer questions
-- If the context doesn't contain enough information, say so clearly
-- Be precise and cite specific information from the context
-- Provide clear, well-structured answers
-- If multiple documents are referenced, acknowledge that in your response"""
 
-    RAG_USER_PROMPT = """Context from documents:
-{context}
+class ConfigValidator:
+    """Validate LLM configuration."""
 
-Question: {question}
+    @staticmethod
+    def validate_llm_config(config) -> tuple[bool, str | None]:
+        """
+        Validate LLM configuration.
 
-Please provide a comprehensive answer based on the context above. If the context doesn't contain sufficient information to answer the question, please state that clearly."""
+        Args:
+            config: LLM configuration object
 
-    SIMPLE_RAG_PROMPT = """Based on the following context from documents, please answer the user's question.
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not config.ollama_url:
+            return False, "Ollama URL not configured"
 
-Context:
-{context}
+        if not config.ollama_model:
+            return False, "Ollama model not configured"
 
-Question: {question}
+        if config.timeout <= 0:
+            return False, "Invalid timeout value"
 
-Answer:"""
+        if config.max_tokens <= 0:
+            return False, "Invalid max_tokens value"
+
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(config.ollama_url)
+            if not parsed.scheme or not parsed.netloc:
+                return False, "Invalid Ollama URL format"
+        except Exception:
+            return False, "Invalid Ollama URL"
+
+        return True, None
+
+
+class OptimizedPromptTemplate:
+    """Pre-compiled prompt templates for better performance."""
+
+    RAG_SYSTEM_PROMPT = (
+        "You are a helpful assistant that answers questions based on "
+        "provided context from documents.\n\n"
+        "Guidelines:\n"
+        "- Use ONLY the provided context to answer questions\n"
+        "- If the context doesn't contain enough information, say so clearly\n"
+        "- Be precise and cite specific information from the context\n"
+        "- Provide clear, well-structured answers\n"
+        "- If multiple documents are referenced, acknowledge that in your response"
+    )
+
+    RAG_USER_TEMPLATE = (
+        "Context from documents:\n{context}\n\n"
+        "Question: {question}\n\n"
+        "Please provide a comprehensive answer based on the context above. "
+        "If the context doesn't contain sufficient information to answer "
+        "the question, please state that clearly."
+    )
+
+    SIMPLE_RAG_TEMPLATE = (
+        "Based on the following context from documents, "
+        "please answer the user's question.\n\n"
+        "Context:\n{context}\n\n"
+        "Question: {question}\n\n"
+        "Answer:"
+    )
+
+    # Pre-compiled format strings for chunk formatting
+    CHUNK_TEMPLATE = "[Document {doc_id}, Relevance: {score:.3f}]\n{content}"
+    CONTEXT_TEMPLATE = "Context {index}:\n{chunk_text}"
+
+    @staticmethod
+    def format_rag_prompt(context: str, question: str) -> str:
+        """Fast prompt formatting with pre-compiled template."""
+        return OptimizedPromptTemplate.RAG_USER_TEMPLATE.format(
+            context=context, question=question
+        )
+
+    @staticmethod
+    def format_simple_rag_prompt(context: str, question: str) -> str:
+        """Fast simple RAG prompt formatting."""
+        return OptimizedPromptTemplate.SIMPLE_RAG_TEMPLATE.format(
+            context=context, question=question
+        )
+
+    @staticmethod
+    def format_context(chunks: list[dict[str, Any]]) -> str:
+        """
+        Format context chunks into a readable string using optimized operations.
+
+        Args:
+            chunks: List of context chunks with content
+
+        Returns:
+            Formatted context string
+        """
+        if not chunks:
+            return "No relevant context found."
+
+        # Pre-allocate list with known size for better performance
+        context_parts = []
+        context_parts.reserve = len(chunks)
+
+        for i, chunk in enumerate(chunks, 1):
+            content = chunk.get("content", "").strip()
+            if content:
+                # Use f-string formatting for better performance
+                context_parts.append(f"[Context {i}]\n{content}")
+
+        return (
+            "\n\n".join(context_parts)
+            if context_parts
+            else "No relevant context found."
+        )
+
+
+def retry_on_failure(max_retries: int = 3, delay: float = 1.0):
+    """Decorator for retrying failed operations with exponential backoff."""
+
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_exception = None
+
+            for attempt in range(max_retries):
+                try:
+                    return await func(*args, **kwargs)
+                except (httpx.TimeoutException, httpx.ConnectError) as e:
+                    last_exception = e
+                    if attempt < max_retries - 1:
+                        # Exponential backoff
+                        await asyncio.sleep(delay * (2**attempt))
+                        continue
+                    break
+                except Exception:
+                    # Don't retry on non-transient errors
+                    raise
+
+            raise LLMError(
+                f"Operation failed after {max_retries} attempts"
+            ) from last_exception
+
+        return wrapper
+
+    return decorator
 
 
 class LLMService:
-    """Service for interacting with local LLM via Ollama."""
+    """Service for interacting with local LLM via Ollama with optimizations."""
 
     def __init__(self):
+        # Validate configuration first
+        is_valid, error = ConfigValidator.validate_llm_config(settings.llm)
+        if not is_valid:
+            raise LLMError(f"Invalid configuration: {error}")
+
         self.ollama_url = settings.llm.ollama_url
         self.model_name = settings.llm.ollama_model
         self.max_tokens = settings.llm.max_tokens
@@ -55,9 +190,23 @@ class LLMService:
         self.client: httpx.AsyncClient | None = None
         self.model_loaded = False
 
+        # Caching for model availability (reduces API calls)
+        self._model_cache: dict[str, Any] = {}
+        self._cache_ttl = timedelta(minutes=5)
+
+        # Pre-build base payload template for efficiency
+        self._base_payload = {
+            "model": self.model_name,
+            "stream": False,
+            "options": {
+                "temperature": self.temperature,
+                "num_predict": self.max_tokens,
+            },
+        }
+
     async def initialize(self) -> bool:
         """
-        Initialize the LLM service and check Ollama availability.
+        Initialize the LLM service with optimized HTTP client.
 
         Returns:
             True if initialization successful
@@ -65,14 +214,21 @@ class LLMService:
         logger.info(f"Initializing LLM service with Ollama at {self.ollama_url}")
 
         try:
-            # Create HTTP client
-            self.client = httpx.AsyncClient(timeout=self.timeout)
+            # Create optimized HTTP client with connection pooling
+            self.client = httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    connect=5.0, read=self.timeout, write=5.0, pool=2.0
+                ),
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+                http2=True,  # Enable HTTP/2 for better performance
+                headers={"User-Agent": "RAG-PDF-Chat/1.0"},
+            )
 
             # Test Ollama connection
             await self._test_ollama_connection()
 
-            # Ensure model is available
-            await self._ensure_model_available()
+            # Ensure model is available with caching
+            await self._ensure_model_available_cached()
 
             logger.info(f"✅ LLM service initialized with model: {self.model_name}")
             return True
@@ -81,40 +237,73 @@ class LLMService:
             logger.error(f"❌ Failed to initialize LLM service: {str(e)}")
             return False
 
+    @retry_on_failure(max_retries=2, delay=1.0)
+    async def _make_request(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """Make HTTP request with automatic retry on transient failures."""
+        if not self.client:
+            raise LLMError("HTTP client not initialized")
+
+        response = await getattr(self.client, method)(url, **kwargs)
+        response.raise_for_status()
+        return response
+
     async def _test_ollama_connection(self) -> None:
-        """Test connection to Ollama API."""
+        """Test connection to Ollama API with retry logic."""
         try:
-            response = await self.client.get(f"{self.ollama_url}/api/tags")
-            response.raise_for_status()
+            await self._make_request("get", f"{self.ollama_url}/api/tags")
             logger.info("✅ Ollama connection successful")
         except Exception as e:
-            raise RuntimeError(f"Failed to connect to Ollama: {str(e)}") from e
+            raise LLMError(f"Failed to connect to Ollama: {str(e)}") from e
 
-    async def _ensure_model_available(self) -> None:
-        """Ensure the specified model is available in Ollama."""
+    async def _get_available_models_cached(self) -> list[str]:
+        """
+        Get available models with caching to reduce API calls.
+
+        Returns:
+            List of available model names
+        """
+        now = datetime.utcnow()
+        cache_key = "available_models"
+
+        # Check cache first
+        if (
+            cache_key in self._model_cache
+            and now - self._model_cache[cache_key]["timestamp"] < self._cache_ttl
+        ):
+            return self._model_cache[cache_key]["data"]
+
+        # Fetch from API
+        response = await self._make_request("get", f"{self.ollama_url}/api/tags")
+        models_data = response.json()
+        models = [model["name"] for model in models_data.get("models", [])]
+
+        # Cache result
+        self._model_cache[cache_key] = {"data": models, "timestamp": now}
+        return models
+
+    async def _ensure_model_available_cached(self) -> None:
+        """Ensure the specified model is available with caching."""
         try:
-            # List available models
-            response = await self.client.get(f"{self.ollama_url}/api/tags")
-            response.raise_for_status()
-
-            models_data = response.json()
-            available_models = [
-                model["name"] for model in models_data.get("models", [])
-            ]
+            available_models = await self._get_available_models_cached()
 
             if self.model_name not in available_models:
                 logger.warning(
-                    f"Model {self.model_name} not found. Available models: {available_models}"
+                    f"Model {self.model_name} not found. "
+                    f"Available models: {available_models}"
                 )
                 logger.info(f"Attempting to pull model: {self.model_name}")
+
+                # Clear cache and try once more after pulling
+                self._model_cache.clear()
                 await self._pull_model()
             else:
                 logger.info(f"✅ Model {self.model_name} is available")
                 self.model_loaded = True
 
         except Exception as e:
-            raise RuntimeError(f"Failed to check model availability: {str(e)}") from e
+            raise LLMError(f"Failed to check model availability: {str(e)}") from e
 
+    @retry_on_failure(max_retries=1, delay=2.0)
     async def _pull_model(self) -> None:
         """Pull model if not available locally."""
         try:
@@ -122,20 +311,18 @@ class LLMService:
                 f"📥 Pulling model {self.model_name} (this may take a while)..."
             )
 
-            response = await self.client.post(
+            await self._make_request(
+                "post",
                 f"{self.ollama_url}/api/pull",
                 json={"name": self.model_name},
                 timeout=300,  # 5 minutes for model pull
             )
-            response.raise_for_status()
 
             logger.info(f"✅ Successfully pulled model: {self.model_name}")
             self.model_loaded = True
 
         except Exception as e:
-            raise RuntimeError(
-                f"Failed to pull model {self.model_name}: {str(e)}"
-            ) from e
+            raise LLMError(f"Failed to pull model {self.model_name}: {str(e)}") from e
 
     async def generate_rag_response(
         self,
@@ -145,7 +332,7 @@ class LLMService:
         use_system_prompt: bool = True,
     ) -> dict[str, Any]:
         """
-        Generate a RAG response using context chunks.
+        Generate a RAG response using context chunks with optimized processing.
 
         Args:
             query: User's question
@@ -157,22 +344,25 @@ class LLMService:
             Dictionary with response data
         """
         if not self.client or not self.model_loaded:
-            raise RuntimeError("LLM service not initialized")
+            raise LLMError("LLM service not initialized")
 
         start_time = time.time()
 
         try:
-            # Format context from chunks
-            context = self._format_context(context_chunks)
+            # Format context with optimized string operations
+            context = OptimizedPromptTemplate.format_context(context_chunks)
 
-            # Create prompt
+            # Create messages with optimized templates
             if use_system_prompt:
                 messages = [
-                    {"role": "system", "content": PromptTemplate.RAG_SYSTEM_PROMPT},
+                    {
+                        "role": "system",
+                        "content": OptimizedPromptTemplate.RAG_SYSTEM_PROMPT,
+                    },
                     {
                         "role": "user",
-                        "content": PromptTemplate.RAG_USER_PROMPT.format(
-                            context=context, question=query
+                        "content": OptimizedPromptTemplate.format_rag_prompt(
+                            context, query
                         ),
                     },
                 ]
@@ -180,15 +370,15 @@ class LLMService:
                 messages = [
                     {
                         "role": "user",
-                        "content": PromptTemplate.SIMPLE_RAG_PROMPT.format(
-                            context=context, question=query
+                        "content": OptimizedPromptTemplate.format_simple_rag_prompt(
+                            context, query
                         ),
                     }
                 ]
 
             logger.info(f"Generating response for query: {query[:100]}...")
 
-            # Generate response
+            # Generate response with optimized payload
             response_data = await self._generate_completion(messages)
 
             generation_time = time.time() - start_time
@@ -214,37 +404,11 @@ class LLMService:
                 "generation_time": time.time() - start_time,
             }
 
-    def _format_context(self, chunks: list[dict[str, Any]]) -> str:
-        """
-        Format context chunks for prompt inclusion.
-
-        Args:
-            chunks: List of document chunks with content and metadata
-
-        Returns:
-            Formatted context string
-        """
-        if not chunks:
-            return "No relevant context found."
-
-        context_parts = []
-
-        for i, chunk in enumerate(chunks, 1):
-            content = chunk.get("content", "").strip()
-            score = chunk.get("score", 0)
-            doc_id = chunk.get("document_id", "unknown")
-
-            # Format each chunk with metadata
-            chunk_text = f"[Document {doc_id[:8]}, Relevance: {score:.3f}]\n{content}"
-            context_parts.append(f"Context {i}:\n{chunk_text}")
-
-        return "\n\n".join(context_parts)
-
     async def _generate_completion(
         self, messages: list[dict[str, str]]
     ) -> dict[str, Any]:
         """
-        Generate completion using Ollama API.
+        Generate completion using optimized payload and error handling.
 
         Args:
             messages: List of messages for the conversation
@@ -253,20 +417,13 @@ class LLMService:
             Raw response data from Ollama
         """
         try:
-            payload = {
-                "model": self.model_name,
-                "messages": messages,
-                "stream": False,
-                "options": {
-                    "temperature": self.temperature,
-                    "num_predict": self.max_tokens,
-                },
-            }
+            # Use pre-built base payload for efficiency
+            payload = self._base_payload.copy()
+            payload["messages"] = messages
 
-            response = await self.client.post(
-                f"{self.ollama_url}/api/chat", json=payload, timeout=self.timeout
+            response = await self._make_request(
+                "post", f"{self.ollama_url}/api/chat", json=payload
             )
-            response.raise_for_status()
 
             data = response.json()
 
@@ -278,14 +435,8 @@ class LLMService:
 
             return data
 
-        except httpx.TimeoutException as e:
-            raise RuntimeError(f"Request timeout after {self.timeout} seconds") from e
-        except httpx.HTTPStatusError as e:
-            raise RuntimeError(
-                f"HTTP error {e.response.status_code}: {e.response.text}"
-            ) from e
         except Exception as e:
-            raise RuntimeError(f"Request failed: {str(e)}") from e
+            raise LLMError(f"Request failed: {str(e)}") from e
 
     async def generate_simple_response(self, prompt: str) -> dict[str, Any]:
         """
@@ -298,7 +449,7 @@ class LLMService:
             Dictionary with response data
         """
         if not self.client or not self.model_loaded:
-            raise RuntimeError("LLM service not initialized")
+            raise LLMError("LLM service not initialized")
 
         start_time = time.time()
 
@@ -325,6 +476,64 @@ class LLMService:
                 "generation_time": time.time() - start_time,
             }
 
+    async def generate_rag_response_streaming(
+        self, query: str, context_chunks: list[dict[str, Any]]
+    ) -> AsyncIterator[dict[str, Any]]:
+        """
+        Generate streaming RAG response for real-time UI updates.
+
+        Args:
+            query: User's question
+            context_chunks: List of relevant document chunks
+
+        Yields:
+            Dictionary with streaming response chunks
+        """
+        if not self.client or not self.model_loaded:
+            raise LLMError("LLM service not initialized")
+
+        try:
+            # Format context and create messages
+            context = OptimizedPromptTemplate.format_context(context_chunks)
+            messages = [
+                {
+                    "role": "system",
+                    "content": OptimizedPromptTemplate.RAG_SYSTEM_PROMPT,
+                },
+                {
+                    "role": "user",
+                    "content": OptimizedPromptTemplate.format_rag_prompt(
+                        context, query
+                    ),
+                },
+            ]
+
+            # Create streaming payload
+            payload = self._base_payload.copy()
+            payload["messages"] = messages
+            payload["stream"] = True
+
+            async with self.client.stream(
+                "POST", f"{self.ollama_url}/api/chat", json=payload
+            ) as response:
+                response.raise_for_status()
+
+                async for line in response.aiter_lines():
+                    if line.strip():
+                        try:
+                            chunk_data = json.loads(line)
+                            if "message" in chunk_data:
+                                yield {
+                                    "chunk": chunk_data["message"]["content"],
+                                    "done": chunk_data.get("done", False),
+                                }
+                        except json.JSONDecodeError:
+                            continue
+
+        except Exception as e:
+            logger.error(f"Failed to generate streaming response: {str(e)}")
+            yield {"error": str(e), "done": True}
+
     async def get_status(self) -> dict[str, Any]:
         """
         Get LLM service status and model information.
@@ -341,14 +550,8 @@ class LLMService:
                     "url": self.ollama_url,
                 }
 
-            # Test connection
-            response = await self.client.get(f"{self.ollama_url}/api/tags")
-            response.raise_for_status()
-
-            models_data = response.json()
-            available_models = [
-                model["name"] for model in models_data.get("models", [])
-            ]
+            # Use cached model list for status
+            available_models = await self._get_available_models_cached()
 
             return {
                 "healthy": True,
@@ -359,6 +562,10 @@ class LLMService:
                 "temperature": self.temperature,
                 "max_tokens": self.max_tokens,
                 "timeout": self.timeout,
+                "cache_status": {
+                    "cached_entries": len(self._model_cache),
+                    "cache_ttl_minutes": self._cache_ttl.total_seconds() / 60,
+                },
             }
 
         except Exception as e:
@@ -374,7 +581,11 @@ class LLMService:
         if self.client:
             await self.client.aclose()
             self.client = None
-            logger.info("✅ LLM service cleanup completed")
+
+        # Clear cache
+        self._model_cache.clear()
+
+        logger.info("✅ LLM service cleanup completed")
 
     async def test_model_response(
         self, test_prompt: str = "Hello, how are you?"
@@ -394,7 +605,8 @@ class LLMService:
             result = await self.generate_simple_response(test_prompt)
 
             if result["success"]:
-                logger.info(f"✅ Model test successful: {result['answer'][:100]}...")
+                answer_preview = result["answer"][:100]
+                logger.info(f"✅ Model test successful: {answer_preview}...")
             else:
                 logger.error(f"❌ Model test failed: {result['error']}")
 
@@ -402,4 +614,8 @@ class LLMService:
 
         except Exception as e:
             logger.error(f"❌ Model test exception: {str(e)}")
-            return {"success": False, "error": str(e), "model_used": self.model_name}
+            return {
+                "success": False,
+                "error": str(e),
+                "model_used": self.model_name,
+            }

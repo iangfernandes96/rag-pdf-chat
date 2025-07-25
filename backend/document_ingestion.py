@@ -12,12 +12,59 @@ from .text_chunker import TextChunker
 logger = logging.getLogger(__name__)
 
 
+class DocumentValidator:
+    """Dedicated document validation with comprehensive checks."""
+
+    @staticmethod
+    def validate_file(
+        file_path: Path, max_size_mb: int = 50
+    ) -> tuple[bool, str | None]:
+        """
+        Fast file validation with early exits.
+
+        Args:
+            file_path: Path to uploaded file
+            max_size_mb: Maximum allowed file size in MB
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        try:
+            # Check file exists
+            if not file_path.exists():
+                return False, "File does not exist"
+
+            # Check file extension first (fastest check)
+            if not file_path.suffix.lower() == ".pdf":
+                return False, "Only PDF files are supported"
+
+            # Check file size
+            try:
+                file_size = file_path.stat().st_size
+            except OSError as e:
+                return False, f"Cannot access file: {e}"
+
+            max_size_bytes = max_size_mb * 1024 * 1024
+            if file_size > max_size_bytes:
+                file_size_mb = file_size / (1024 * 1024)
+                return (
+                    False,
+                    f"File too large: {file_size_mb:.1f}MB > {max_size_mb}MB",
+                )
+
+            return True, None
+
+        except Exception as e:
+            return False, f"Validation error: {str(e)}"
+
+
 class DocumentIngestionService:
     """Service for ingesting and processing PDF documents."""
 
     def __init__(self):
         self.pdf_parser = PDFParser()
         self.text_chunker = TextChunker()
+        self.validator = DocumentValidator()
 
     def ingest_document(
         self, file_path: Path, original_filename: str
@@ -70,7 +117,8 @@ class DocumentIngestionService:
             )
 
         except Exception as e:
-            logger.error(f"Document ingestion failed for {original_filename}: {str(e)}")
+            error_msg = f"Document ingestion failed for {original_filename}: {str(e)}"
+            logger.error(error_msg)
             return ProcessingResult(
                 success=False, error_message=f"Ingestion failed: {str(e)}"
             )
@@ -88,30 +136,13 @@ class DocumentIngestionService:
         Returns:
             Tuple of (is_valid, error_message)
         """
-        try:
-            # Check file exists
-            if not file_path.exists():
-                return False, "File does not exist"
-
-            # Check file size
-            file_size_mb = file_path.stat().st_size / (1024 * 1024)
-            if file_size_mb > max_size_mb:
-                return False, f"File too large: {file_size_mb:.1f}MB > {max_size_mb}MB"
-
-            # Check file extension
-            if not file_path.suffix.lower() == ".pdf":
-                return False, "Only PDF files are supported"
-
-            return True, None
-
-        except Exception as e:
-            return False, f"Validation error: {str(e)}"
+        return self.validator.validate_file(file_path, max_size_mb)
 
     def get_document_stats(
         self, document: Document, chunks: list[DocumentChunk]
     ) -> dict:
         """
-        Calculate document processing statistics.
+        Calculate document processing statistics in single pass - O(n) optimized.
 
         Args:
             document: Processed document
@@ -128,16 +159,28 @@ class DocumentIngestionService:
                 "avg_tokens_per_chunk": 0,
             }
 
-        chunk_sizes = [len(chunk.content) for chunk in chunks]
-        token_counts = [chunk.token_count or 0 for chunk in chunks]
+        # Single-pass calculation for optimal performance
+        total_size = total_tokens = 0
+        min_size = float("inf")
+        max_size = 0
 
+        for chunk in chunks:  # O(n) - single iteration
+            size = len(chunk.content)
+            tokens = chunk.token_count or 0
+
+            total_size += size
+            total_tokens += tokens
+            min_size = min(min_size, size)
+            max_size = max(max_size, size)
+
+        count = len(chunks)
         return {
-            "total_chunks": len(chunks),
-            "avg_chunk_size": sum(chunk_sizes) // len(chunks),
-            "min_chunk_size": min(chunk_sizes),
-            "max_chunk_size": max(chunk_sizes),
-            "total_tokens": sum(token_counts),
-            "avg_tokens_per_chunk": (sum(token_counts) // len(chunks) if chunks else 0),
+            "total_chunks": count,
+            "avg_chunk_size": total_size // count,
+            "min_chunk_size": (int(min_size) if min_size != float("inf") else 0),
+            "max_chunk_size": max_size,
+            "total_tokens": total_tokens,
+            "avg_tokens_per_chunk": (total_tokens // count if count > 0 else 0),
             "document_size_bytes": document.file_size,
             "pages": document.page_count or 0,
         }
@@ -161,7 +204,10 @@ class DocumentIngestionService:
         return None
 
     def get_chunks_with_context(
-        self, chunks: list[DocumentChunk], target_chunk_id: str, context_size: int = 1
+        self,
+        chunks: list[DocumentChunk],
+        target_chunk_id: str,
+        context_size: int = 1,
     ) -> list[DocumentChunk]:
         """
         Get a chunk along with surrounding context chunks.
