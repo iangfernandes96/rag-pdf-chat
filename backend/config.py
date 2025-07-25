@@ -41,6 +41,7 @@ class EmbeddingSettings(BaseModel):
 
     model_name: str = "all-MiniLM-L6-v2"
     cache_dir: str = "./cache"
+    batch_size: int = DefaultValues.BATCH_SIZE
 
 
 class DocumentSettings(BaseModel):

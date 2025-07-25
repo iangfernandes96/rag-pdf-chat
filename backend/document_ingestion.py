@@ -94,7 +94,7 @@ class DocumentIngestionService:
             # Chunk the text
             chunks = self.text_chunker.chunk_text(
                 document_id=document.id,
-                text=document.content,
+                text=pdf_result.content,
                 metadata={"source": "pdf_extraction"},
             )
 
@@ -102,7 +102,7 @@ class DocumentIngestionService:
             chunks = self.text_chunker.merge_small_chunks(chunks)
 
             # Update document with chunk count
-            document.chunk_count = len(chunks)
+            document.total_chunks = len(chunks)
 
             logger.info(
                 f"Successfully ingested document {original_filename}: "

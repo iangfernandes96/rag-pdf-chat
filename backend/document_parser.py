@@ -5,6 +5,7 @@ PDF document parsing functionality.
 import logging
 import re
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pdfplumber
@@ -213,13 +214,17 @@ class PDFParser:
                 filename=file_path.name,
                 original_filename=original_filename,
                 file_size=file_path.stat().st_size,
-                content=content,
                 page_count=page_count,
-                processing_status="completed",
+                total_chunks=0,  # Will be updated after chunking
+                uploaded_at=datetime.now(UTC),
+                processing_time=0.0,  # Will be updated at the end
                 metadata=extraction_metadata,
             )
 
             processing_time = time.time() - start_time
+
+            # Update the document with actual processing time
+            document.processing_time = processing_time
 
             logger.info(
                 f"Successfully processed PDF: {original_filename} "
@@ -227,7 +232,10 @@ class PDFParser:
             )
 
             return ProcessingResult(
-                success=True, document=document, processing_time=processing_time
+                success=True,
+                document=document,
+                content=content,
+                processing_time=processing_time,
             )
 
         except PDFParseError as e:

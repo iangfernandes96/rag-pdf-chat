@@ -127,7 +127,6 @@ class OptimizedPromptTemplate:
 
         # Pre-allocate list with known size for better performance
         context_parts = []
-        context_parts.reserve = len(chunks)
 
         for i, chunk in enumerate(chunks, 1):
             content = chunk.get("content", "").strip()

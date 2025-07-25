@@ -60,7 +60,10 @@ class HttpStatus:
     OK: Final[int] = 200
     BAD_REQUEST: Final[int] = 400
     NOT_FOUND: Final[int] = 404
+    REQUEST_ENTITY_TOO_LARGE: Final[int] = 413
+    UNPROCESSABLE_ENTITY: Final[int] = 422
     INTERNAL_SERVER_ERROR: Final[int] = 500
+    SERVICE_UNAVAILABLE: Final[int] = 503
 
 
 class LoggingPrefixes:

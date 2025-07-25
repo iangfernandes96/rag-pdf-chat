@@ -44,6 +44,7 @@ class ProcessingResult(BaseModel):
 
     success: bool
     document: Document | None = None
+    content: str = ""  # Extracted text content
     chunks: list[DocumentChunk] = Field(default_factory=list)
     processing_time: float = 0.0
     error_message: str | None = None
