@@ -8,7 +8,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pdfplumber
+import fitz  # PyMuPDF
 
 from .config import settings
 from .models import Document, ProcessingResult
@@ -56,9 +56,11 @@ class PDFParser:
             return False, "File is not a PDF"
 
         try:
-            with pdfplumber.open(file_path) as pdf:
-                if len(pdf.pages) == 0:
-                    return False, "PDF contains no pages"
+            doc = fitz.open(file_path)
+            if doc.page_count == 0:
+                doc.close()
+                return False, "PDF contains no pages"
+            doc.close()
         except Exception as e:
             return False, f"Invalid PDF file: {str(e)}"
 
@@ -77,7 +79,7 @@ class PDFParser:
         Safely extract and clean text from a single page.
 
         Args:
-            page: pdfplumber page object
+            page: PyMuPDF page object
             page_num: Page number for logging
             metadata: Metadata dict to update with errors
 
@@ -85,7 +87,7 @@ class PDFParser:
             Cleaned page text or None if extraction failed
         """
         try:
-            page_text = page.extract_text()
+            page_text = page.get_text()
             if page_text:
                 cleaned_text = self._clean_text(page_text)
                 metadata["pages_processed"].append(page_num)
@@ -119,26 +121,30 @@ class PDFParser:
             text_parts = []
             page_count = 0
             metadata = {
-                "extraction_method": "pdfplumber",
+                "extraction_method": "pymupdf",
                 "pages_processed": [],
                 "extraction_errors": [],
             }
 
-            with pdfplumber.open(file_path) as pdf:
-                page_count = len(pdf.pages)
+            doc = fitz.open(file_path)
+            try:
+                page_count = doc.page_count
                 logger.info(f"PDF contains {page_count} pages")
 
-                for page_num, page in enumerate(pdf.pages, 1):
-                    page_text = self._extract_page_safely(page, page_num, metadata)
+                for page_num in range(page_count):
+                    page = doc[page_num]
+                    page_text = self._extract_page_safely(page, page_num + 1, metadata)
                     if page_text:
                         # Accumulate in list for efficient concatenation
                         text_parts.extend(
                             [
-                                f"\n--- Page {page_num} ---\n",
+                                f"\n--- Page {page_num + 1} ---\n",
                                 page_text,
                                 "\n",
                             ]
                         )
+            finally:
+                doc.close()
 
             # Single join operation - much more efficient than repeated concatenation
             extracted_text = "".join(text_parts)
