@@ -2,9 +2,11 @@
 PDF document parsing functionality.
 """
 
+import asyncio
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -31,6 +33,7 @@ class PDFParser:
 
     def __init__(self):
         self.max_file_size = settings.document.max_file_size_mb * 1024 * 1024
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pdf-parser")
 
     def validate_pdf(self, file_path: Path) -> tuple[bool, str | None]:
         """
@@ -187,7 +190,23 @@ class PDFParser:
 
         return text.strip()
 
-    def process_pdf(self, file_path: Path, original_filename: str) -> ProcessingResult:
+    async def process_pdf(self, file_path: Path, original_filename: str) -> ProcessingResult:
+        """
+        Process a PDF file asynchronously using thread pool executor.
+
+        Args:
+            file_path: Path to the PDF file
+            original_filename: Original name of the uploaded file
+
+        Returns:
+            ProcessingResult with document and processing information
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self._executor, self._process_pdf_sync, file_path, original_filename
+        )
+
+    def _process_pdf_sync(self, file_path: Path, original_filename: str) -> ProcessingResult:
         """
         Process a PDF file and create Document object.
 
