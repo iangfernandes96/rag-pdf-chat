@@ -1,15 +1,18 @@
 """
-Data models for RAG PDF Chat application.
+Data models for the RAG PDF Chat application.
 """
 
 from datetime import datetime
+from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from .constants import DefaultValues
+
 
 class DocumentChunk(BaseModel):
-    """Represents a text chunk from a document."""
+    """A chunk of text from a document."""
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     document_id: str
@@ -17,45 +20,42 @@ class DocumentChunk(BaseModel):
     content: str
     start_char: int
     end_char: int
-    token_count: int | None = None
+    token_count: int
+    metadata: dict[str, Any] = Field(default_factory=dict)
     embedding: list[float] | None = None
-    metadata: dict = Field(default_factory=dict)
 
 
 class Document(BaseModel):
-    """Represents a processed document."""
+    """A processed document."""
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     filename: str
     original_filename: str
     file_size: int
-    content: str
-    page_count: int | None = None
-    chunk_count: int = 0
-    processing_status: str = "pending"  # pending, processing, completed, failed
-    error_message: str | None = None
-    uploaded_at: datetime = Field(default_factory=datetime.utcnow)
-    processed_at: datetime | None = None
-    metadata: dict = Field(default_factory=dict)
+    page_count: int
+    total_chunks: int
+    uploaded_at: datetime
+    processing_time: float
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProcessingResult(BaseModel):
-    """Result of document processing operation."""
+    """Result of document processing."""
 
     success: bool
     document: Document | None = None
     chunks: list[DocumentChunk] = Field(default_factory=list)
-    error_message: str | None = None
     processing_time: float = 0.0
+    error_message: str | None = None
 
 
 class ChunkingStrategy(BaseModel):
     """Configuration for text chunking."""
 
-    chunk_size: int = 500
-    overlap: int = 100
+    chunk_size: int = DefaultValues.CHUNK_SIZE
+    overlap: int = DefaultValues.CHUNK_OVERLAP
     preserve_sentences: bool = True
-    min_chunk_size: int = 50
+    min_chunk_size: int = DefaultValues.MIN_CHUNK_SIZE
 
 
 class EmbeddingResult(BaseModel):

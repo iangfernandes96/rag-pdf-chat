@@ -13,6 +13,7 @@ import asyncpg
 from asyncpg import Connection, Pool
 
 from .config import settings
+from .constants import DefaultValues
 from .models import Document, DocumentChunk
 
 logger = logging.getLogger(__name__)
@@ -364,8 +365,8 @@ class DatabaseService:
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7)
                 """,
                     session_id,
-                    query[:1000],
-                    response[:5000],
+                    query[: DefaultValues.MAX_QUERY_LENGTH],
+                    response[: DefaultValues.MAX_RESPONSE_LENGTH],
                     model_used,
                     chunks_used,
                     response_time,
@@ -412,7 +413,7 @@ class DatabaseService:
                         AVG(response_time) as avg_response_time,
                         AVG(chunks_used) as avg_chunks_used
                     FROM query_sessions
-                    WHERE created_at >= NOW() - INTERVAL '30 days'
+                    WHERE created_at >= NOW() - INTERVAL '{DefaultValues.STATS_DAYS} days'
                 """
                 )
 

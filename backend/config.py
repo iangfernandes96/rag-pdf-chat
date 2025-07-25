@@ -1,94 +1,89 @@
 """
-Configuration settings for RAG PDF Chat application.
+Configuration settings for the RAG PDF Chat application.
 """
 
 import os
 
 from pydantic import BaseModel
 
+from .constants import DefaultValues, EnvironmentKeys
+
 
 class DatabaseSettings(BaseModel):
-    """Database configuration settings."""
+    """Database configuration."""
 
-    url: str = "postgresql://rag_user:rag_password@localhost:5432/rag_pdf_chat"
-    echo: bool = False
+    url: str = os.getenv(
+        EnvironmentKeys.DATABASE_URL, "postgresql://localhost/rag_pdf_chat"
+    )
 
 
 class VectorSettings(BaseModel):
-    """Vector database configuration settings."""
+    """Vector store configuration."""
 
-    qdrant_url: str = "http://localhost:6333"
+    qdrant_url: str = DefaultValues.QDRANT_URL
     collection_name: str = "documents"
-    vector_size: int = 384  # all-MiniLM-L6-v2 embedding size
+    vector_size: int = DefaultValues.VECTOR_SIZE
+    batch_size: int = DefaultValues.BATCH_SIZE
 
 
 class LLMSettings(BaseModel):
-    """LLM configuration settings."""
+    """LLM configuration."""
 
-    ollama_url: str = "http://localhost:11434"
+    ollama_url: str = DefaultValues.OLLAMA_URL
     ollama_model: str = "mistral"
-    temperature: float = 0.1
+    timeout: int = DefaultValues.HTTP_TIMEOUT
     max_tokens: int = 2048
-    timeout: int = 120
+    temperature: float = 0.7
 
 
 class EmbeddingSettings(BaseModel):
     """Embedding model configuration."""
 
     model_name: str = "all-MiniLM-L6-v2"
-    batch_size: int = 32
+    cache_dir: str = "./cache"
 
 
 class DocumentSettings(BaseModel):
     """Document processing configuration."""
 
-    chunk_size: int = 500
-    chunk_overlap: int = 100
-    max_file_size_mb: int = 50
-    allowed_extensions: list[str] = ["pdf"]
+    chunk_size: int = DefaultValues.CHUNK_SIZE
+    chunk_overlap: int = DefaultValues.CHUNK_OVERLAP
+    max_file_size_mb: int = DefaultValues.MAX_FILE_SIZE_MB
+    allowed_extensions: tuple[str, ...] = (".pdf",)
 
 
 class Settings:
     """Main application settings."""
 
     def __init__(self):
-        # Application
-        self.app_name: str = "RAG PDF Chat"
-        self.debug: bool = os.getenv("DEBUG", "False").lower() == "true"
-        self.log_level: str = os.getenv("LOG_LEVEL", "INFO")
+        self.debug: bool = os.getenv(EnvironmentKeys.DEBUG, "False").lower() == "true"
+        self.reload: bool = os.getenv(EnvironmentKeys.RELOAD, "False").lower() == "true"
 
-        # Services
-        self.database = DatabaseSettings(
-            url=os.getenv(
-                "DATABASE_URL",
-                "postgresql://rag_user:rag_password@localhost:5432/rag_pdf_chat",
-            ),
-            echo=self.debug,
-        )
-
+        # Service configurations
+        self.database = DatabaseSettings()
         self.vector = VectorSettings(
-            qdrant_url=os.getenv("QDRANT_URL", "http://localhost:6333"),
-            collection_name="documents",
-            vector_size=384,
+            qdrant_url=os.getenv(EnvironmentKeys.QDRANT_URL, DefaultValues.QDRANT_URL),
         )
-
         self.llm = LLMSettings(
-            ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434"),
-            ollama_model=os.getenv("OLLAMA_MODEL", "mistral"),
-            temperature=0.1,
-            max_tokens=2048,
-            timeout=120,
+            ollama_url=os.getenv(EnvironmentKeys.OLLAMA_URL, DefaultValues.OLLAMA_URL),
+            ollama_model=os.getenv(EnvironmentKeys.OLLAMA_MODEL, "mistral"),
         )
-
-        self.embedding = EmbeddingSettings(
-            model_name=os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"), batch_size=32
-        )
-
+        self.embedding = EmbeddingSettings()
         self.document = DocumentSettings(
-            chunk_size=int(os.getenv("CHUNK_SIZE", "500")),
-            chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "100")),
-            max_file_size_mb=int(os.getenv("MAX_FILE_SIZE_MB", "50")),
-            allowed_extensions=["pdf"],
+            chunk_size=int(
+                os.getenv(EnvironmentKeys.CHUNK_SIZE, str(DefaultValues.CHUNK_SIZE))
+            ),
+            chunk_overlap=int(
+                os.getenv(
+                    EnvironmentKeys.CHUNK_OVERLAP, str(DefaultValues.CHUNK_OVERLAP)
+                )
+            ),
+            max_file_size_mb=int(
+                os.getenv(
+                    EnvironmentKeys.MAX_FILE_SIZE_MB,
+                    str(DefaultValues.MAX_FILE_SIZE_MB),
+                )
+            ),
         )
 
 

@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .constants import DefaultValues, SnippetSettings
 from .document_ingestion import DocumentIngestionService
 from .embedding_service import EmbeddingService
 from .vector_store import VectorStore
@@ -42,8 +43,13 @@ class RAGValidator:
         if not query or not query.strip():
             raise RAGError("Query cannot be empty")
 
-        if not isinstance(limit, int) or not 1 <= limit <= 100:
-            raise RAGError("Limit must be between 1 and 100")
+        if (
+            not isinstance(limit, int)
+            or not 1 <= limit <= DefaultValues.RAG_SEARCH_LIMIT
+        ):
+            raise RAGError(
+                f"Limit must be between 1 and {DefaultValues.RAG_SEARCH_LIMIT}"
+            )
 
         if (
             not isinstance(score_threshold, int | float)
@@ -78,7 +84,9 @@ class SnippetOptimizer:
     WORD_BOUNDARY = re.compile(r"\b")
 
     @classmethod
-    def create_snippet(cls, content: str, query: str, max_length: int = 200) -> str:
+    def create_snippet(
+        cls, content: str, query: str, max_length: int = SnippetSettings.MAX_LENGTH
+    ) -> str:
         """
         Create an optimized snippet with intelligent context extraction.
 
@@ -160,8 +168,10 @@ class RAGService:
 
         # Query caching for performance optimization
         self._query_cache: dict[str, dict[str, Any]] = {}
-        self._cache_ttl = timedelta(hours=1)  # Cache for 1 hour
-        self._max_cache_size = 1000  # Limit cache size
+        self._cache_ttl = timedelta(
+            hours=DefaultValues.CACHE_TTL_HOURS
+        )  # Cache for 1 hour
+        self._max_cache_size = DefaultValues.CACHE_SIZE  # Limit cache size
 
     async def initialize(self) -> bool:
         """
@@ -345,7 +355,12 @@ class RAGService:
             self._query_cache.items(), key=lambda x: x[1]["timestamp"]
         )
 
-        entries_to_remove = len(sorted_entries) // 5  # Remove 20%
+        # Use performance threshold for cleanup ratio
+        from .constants import PerformanceThresholds
+
+        entries_to_remove = int(
+            len(sorted_entries) * PerformanceThresholds.CACHE_CLEANUP_RATIO
+        )
         for key, _ in sorted_entries[:entries_to_remove]:
             del self._query_cache[key]
 

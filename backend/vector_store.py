@@ -22,6 +22,7 @@ from qdrant_client.http.models import (
 )
 
 from .config import settings
+from .constants import DefaultValues, SystemMessages
 from .models import DocumentChunk
 
 logger = logging.getLogger(__name__)
@@ -65,8 +66,15 @@ class VectorStoreValidator:
                 f"must match vector size {settings.vector.vector_size}"
             )
 
-        if not isinstance(limit, int) or not 1 <= limit <= 1000:
-            raise VectorStoreError("Limit must be between 1 and 1000")
+        if (
+            not isinstance(limit, int)
+            or not DefaultValues.MIN_SEARCH_LIMIT
+            <= limit
+            <= DefaultValues.VECTOR_SEARCH_LIMIT
+        ):
+            raise VectorStoreError(
+                f"Limit must be between {DefaultValues.MIN_SEARCH_LIMIT} and {DefaultValues.VECTOR_SEARCH_LIMIT}"
+            )
 
         if (
             not isinstance(score_threshold, int | float)
@@ -122,7 +130,10 @@ class VectorStoreValidator:
                 raise VectorStoreError(f"Chunk {i} has empty content")
 
 
-def retry_with_exponential_backoff(max_retries: int = 3, initial_delay: float = 1.0):
+def retry_with_exponential_backoff(
+    max_retries: int = DefaultValues.MAX_RETRIES,
+    initial_delay: float = DefaultValues.INITIAL_RETRY_DELAY,
+):
     """Decorator for retrying operations with exponential backoff."""
 
     def decorator(func):
@@ -192,7 +203,11 @@ def performance_monitor(func):
 class SearchResultCache:
     """LRU cache for search results with TTL."""
 
-    def __init__(self, max_size: int = 1000, ttl_hours: float = 1.0):
+    def __init__(
+        self,
+        max_size: int = DefaultValues.CACHE_SIZE,
+        ttl_hours: float = DefaultValues.CACHE_TTL_HOURS,
+    ):
         self.max_size = max_size
         self.ttl = timedelta(hours=ttl_hours)
         self._cache: dict[str, dict[str, Any]] = {}
@@ -224,7 +239,7 @@ class SearchResultCache:
         if cache_key in self._cache:
             cached_entry = self._cache[cache_key]
             if datetime.utcnow() - cached_entry["timestamp"] < self.ttl:
-                logger.debug("Cache hit for search query")
+                logger.debug(SystemMessages.CACHE_HIT)
                 return cached_entry["results"]
             else:
                 # Remove expired entry
@@ -257,14 +272,19 @@ class SearchResultCache:
         logger.debug("Cached search results for query")
 
     def _cleanup_cache(self) -> None:
-        """Remove oldest 20% of cache entries."""
+        """Remove oldest entries based on cleanup ratio."""
         if len(self._cache) < self.max_size:
             return
 
         # Sort by timestamp and remove oldest entries
         sorted_entries = sorted(self._cache.items(), key=lambda x: x[1]["timestamp"])
 
-        entries_to_remove = len(sorted_entries) // 5  # Remove 20%
+        # Use performance threshold for cleanup ratio
+        from .constants import PerformanceThresholds
+
+        entries_to_remove = int(
+            len(sorted_entries) * PerformanceThresholds.CACHE_CLEANUP_RATIO
+        )
         for key, _ in sorted_entries[:entries_to_remove]:
             del self._cache[key]
 
@@ -292,9 +312,11 @@ class VectorStore:
         self._performance_metrics: dict[str, dict[str, Any]] = {}
 
         # Batch processing configuration
-        self.batch_size = getattr(settings.vector, "batch_size", 100)
+        self.batch_size = getattr(
+            settings.vector, "batch_size", DefaultValues.BATCH_SIZE
+        )
 
-    @retry_with_exponential_backoff(max_retries=3)
+    @retry_with_exponential_backoff()
     @performance_monitor
     async def connect(self) -> None:
         """Connect to Qdrant database with retry logic."""
@@ -309,7 +331,7 @@ class VectorStore:
 
             # Test connection
             collections = await self.client.get_collections()
-            logger.info("Successfully connected to Qdrant")
+            logger.info(SystemMessages.CONNECTED)
             logger.info(f"Available collections: {len(collections.collections)}")
 
         except Exception as e:
@@ -510,7 +532,7 @@ class VectorStore:
     async def search_similar(
         self,
         query_embedding: list[float],
-        limit: int = 5,
+        limit: int = DefaultValues.VECTOR_SEARCH_LIMIT,
         score_threshold: float = 0.0,
         document_filter: str | None = None,
     ) -> list[dict[str, Any]]:

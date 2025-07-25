@@ -1,6 +1,5 @@
 """
 FastAPI backend for RAG PDF Chat system.
-Provides endpoints for document upload, querying, and RAG-based responses.
 """
 
 import logging
@@ -10,13 +9,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import uvicorn
-from fastapi import FastAPI, File, HTTPException, UploadFile, status
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .config import settings
+from .constants import HttpStatus, SnippetSettings
 from .database import DatabaseService
 from .llm_service import LLMService
 from .rag_service import RAGService
@@ -71,7 +70,7 @@ class QueryRequest(BaseModel):
     query: str = Field(
         ...,
         min_length=1,
-        max_length=1000,
+        max_length=SnippetSettings.MAX_LENGTH,
         description="The question to ask about uploaded documents",
     )
     limit: int = Field(
@@ -187,7 +186,7 @@ async def health_check():
     """Health check endpoint for monitoring system status."""
     if not rag_service or not llm_service or not db_service:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=HttpStatus.SERVICE_UNAVAILABLE,
             detail="Services not initialized",
         )
 
@@ -222,7 +221,7 @@ async def health_check():
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=HttpStatus.SERVICE_UNAVAILABLE,
             detail=f"Health check failed: {str(e)}",
         ) from e
 
@@ -240,19 +239,19 @@ async def upload_document(file: UploadFile = File(...)):
     """
     if not rag_service or not db_service:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=HttpStatus.SERVICE_UNAVAILABLE,
             detail="Services not initialized",
         )
 
     # Validate file
     if not file.filename:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="No file provided"
+            status_code=HttpStatus.BAD_REQUEST, detail="No file provided"
         )
 
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=HttpStatus.BAD_REQUEST,
             detail="Only PDF files are supported",
         )
 
@@ -264,7 +263,7 @@ async def upload_document(file: UploadFile = File(...)):
     max_size = settings.document.max_file_size_mb * 1024 * 1024
     if file_size > max_size:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=HttpStatus.REQUEST_ENTITY_TOO_LARGE,
             detail=f"File too large. Maximum size: {settings.document.max_file_size_mb}MB",
         )
 
@@ -286,7 +285,7 @@ async def upload_document(file: UploadFile = File(...)):
 
         if not result["success"]:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=HttpStatus.UNPROCESSABLE_ENTITY,
                 detail=f"Document processing failed: {result.get('error', 'Unknown error')}",
             )
 
@@ -316,7 +315,7 @@ async def upload_document(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Upload processing failed: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=HttpStatus.INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {str(e)}",
         ) from e
     finally:
@@ -338,7 +337,7 @@ async def query_documents(request: QueryRequest):
     """
     if not rag_service or not llm_service:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=HttpStatus.SERVICE_UNAVAILABLE,
             detail="Services not initialized",
         )
 
@@ -356,7 +355,7 @@ async def query_documents(request: QueryRequest):
 
         if not search_result["success"]:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=HttpStatus.INTERNAL_SERVER_ERROR,
                 detail=f"Search failed: {search_result.get('error', 'Unknown error')}",
             )
 
@@ -382,7 +381,7 @@ async def query_documents(request: QueryRequest):
 
         if not llm_response["success"]:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=HttpStatus.INTERNAL_SERVER_ERROR,
                 detail=f"LLM generation failed: {llm_response.get('error', 'Unknown error')}",
             )
 
@@ -425,7 +424,7 @@ async def query_documents(request: QueryRequest):
     except Exception as e:
         logger.error(f"Query processing failed: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=HttpStatus.INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {str(e)}",
         ) from e
 
@@ -471,7 +470,7 @@ async def delete_document(document_id: str):
     """
     if not rag_service or not db_service:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=HttpStatus.SERVICE_UNAVAILABLE,
             detail="Services not initialized",
         )
 
@@ -484,7 +483,7 @@ async def delete_document(document_id: str):
 
         if not vector_deleted or not db_deleted:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
+                status_code=HttpStatus.NOT_FOUND,
                 detail="Document not found or deletion failed",
             )
 
@@ -500,26 +499,27 @@ async def delete_document(document_id: str):
     except Exception as e:
         logger.error(f"Failed to delete document {document_id}: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=HttpStatus.INTERNAL_SERVER_ERROR,
             detail=f"Deletion failed: {str(e)}",
         ) from e
 
 
 # Error handlers
-@app.exception_handler(404)
+@app.exception_handler(HttpStatus.NOT_FOUND)
 async def not_found_handler(request, exc):
     """Handle 404 errors."""
     return JSONResponse(
-        status_code=404, content={"error": "Endpoint not found", "detail": str(exc)}
+        status_code=HttpStatus.NOT_FOUND,
+        content={"error": "Endpoint not found", "detail": str(exc)},
     )
 
 
-@app.exception_handler(500)
+@app.exception_handler(HttpStatus.INTERNAL_SERVER_ERROR)
 async def internal_error_handler(request, exc):
     """Handle 500 errors."""
     logger.error(f"Internal server error: {str(exc)}")
     return JSONResponse(
-        status_code=500,
+        status_code=HttpStatus.INTERNAL_SERVER_ERROR,
         content={
             "error": "Internal server error",
             "detail": "An unexpected error occurred",
@@ -529,6 +529,8 @@ async def internal_error_handler(request, exc):
 
 # Development server
 if __name__ == "__main__":
+    import uvicorn
+
     uvicorn.run(
         "backend.app:app",
         host="0.0.0.0",
