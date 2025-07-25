@@ -278,10 +278,15 @@ async def upload_document(file: UploadFile = File(...)):
 
         logger.info(f"Processing uploaded file: {file.filename} ({file_size} bytes)")
 
-        # Process document through RAG service
+        # Process document through RAG service with detailed timing
         start_time = datetime.now(UTC)
+        logger.info(f"Starting document processing at {start_time}")
+        
         result = await rag_service.process_document(temp_file, file.filename)
-        processing_time = (datetime.now(UTC) - start_time).total_seconds()
+        
+        end_time = datetime.now(UTC)
+        processing_time = (end_time - start_time).total_seconds()
+        logger.info(f"Document processing completed in {processing_time:.2f} seconds")
 
         if not result["success"]:
             raise HTTPException(

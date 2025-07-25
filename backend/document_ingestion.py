@@ -8,6 +8,7 @@ from pathlib import Path
 from .document_parser import PDFParser
 from .models import Document, DocumentChunk, ProcessingResult
 from .text_chunker import TextChunker
+from .utils.timing import time_function
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ class DocumentIngestionService:
         self.text_chunker = TextChunker()
         self.validator = DocumentValidator()
 
+    @time_function
     def ingest_document(
         self, file_path: Path, original_filename: str
     ) -> ProcessingResult:

@@ -12,6 +12,7 @@ from sentence_transformers import SentenceTransformer
 
 from .config import settings
 from .models import DocumentChunk, EmbeddingResult
+from .utils.timing import time_function, time_async_function
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +260,7 @@ class EmbeddingService:
                 {"batch_size": len(valid_texts)},
             )
 
+    @time_function
     def embed_chunks(self, chunks: list[DocumentChunk]) -> list[EmbeddingResult]:
         """
         Generate embeddings with optimized memory usage and single-pass processing.
@@ -305,6 +307,7 @@ class EmbeddingService:
         logger.info(f"Successfully embedded {len(results)} chunks")
         return results
 
+    @time_async_function
     async def embed_chunks_async(
         self, chunks: list[DocumentChunk]
     ) -> list[EmbeddingResult]:

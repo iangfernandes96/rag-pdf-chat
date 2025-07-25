@@ -14,6 +14,7 @@ from .constants import DefaultValues, SnippetSettings
 from .document_ingestion import DocumentIngestionService
 from .embedding_service import EmbeddingService
 from .vector_store import VectorStore
+from .utils.timing import time_async_function
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +203,7 @@ class RAGService:
             logger.error(f"Failed to initialize RAG service: {str(e)}")
             return False
 
+    @time_async_function
     async def process_document(
         self, file_path: Path, original_filename: str
     ) -> dict[str, Any]:

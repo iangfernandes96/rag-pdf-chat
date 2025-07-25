@@ -24,6 +24,7 @@ from qdrant_client.http.models import (
 from .config import settings
 from .constants import DefaultValues, SystemMessages
 from .models import DocumentChunk
+from .utils.timing import time_async_function
 
 logger = logging.getLogger(__name__)
 
@@ -428,6 +429,7 @@ class VectorStore:
 
         return points
 
+    @time_async_function
     @retry_with_exponential_backoff(max_retries=2)
     async def _upload_batch(self, points: list[PointStruct]) -> None:
         """Upload a batch of points with retry logic."""
