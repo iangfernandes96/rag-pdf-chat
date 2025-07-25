@@ -14,7 +14,7 @@ from asyncpg import Connection, Pool
 
 from .config import settings
 from .constants import DefaultValues
-from .models import Document, DocumentChunk
+from .models import Document
 
 logger = logging.getLogger(__name__)
 
@@ -78,25 +78,6 @@ class DatabaseService:
             """
             )
 
-            # Document chunks table
-            await conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS document_chunks (
-                    id UUID PRIMARY KEY,
-                    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-                    chunk_index INTEGER NOT NULL,
-                    content TEXT NOT NULL,
-                    start_char INTEGER DEFAULT 0,
-                    end_char INTEGER DEFAULT 0,
-                    token_count INTEGER DEFAULT 0,
-                    embedding_stored BOOLEAN DEFAULT FALSE,
-                    metadata JSONB DEFAULT '{}'::jsonb,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    UNIQUE(document_id, chunk_index)
-                );
-            """
-            )
-
             # Query sessions table (for tracking user interactions)
             await conn.execute(
                 """
@@ -124,20 +105,6 @@ class DatabaseService:
 
             await conn.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_chunks_document_id
-                ON document_chunks(document_id);
-            """
-            )
-
-            await conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_chunks_embedding_stored
-                ON document_chunks(embedding_stored);
-            """
-            )
-
-            await conn.execute(
-                """
                 CREATE INDEX IF NOT EXISTS idx_query_sessions_created_at
                 ON query_sessions(created_at);
             """
@@ -146,14 +113,14 @@ class DatabaseService:
             logger.info("✅ Database tables created/verified")
 
     async def store_document_metadata(
-        self, document: Document, chunks: list[DocumentChunk]
+        self, document: Document, chunks: list[Any]
     ) -> bool:
         """
-        Store document and chunk metadata in database.
+        Store document metadata in database.
 
         Args:
             document: Document object with metadata
-            chunks: List of document chunks
+            chunks: List of document chunks (for chunk count)
 
         Returns:
             True if storage successful
@@ -163,56 +130,30 @@ class DatabaseService:
 
         try:
             async with self.pool.acquire() as conn:
-                async with conn.transaction():
-                    # Insert document
-                    await conn.execute(
-                        """
-                        INSERT INTO documents (
-                            id, filename, original_filename, file_size,
-                            page_count, chunk_count, processing_status,
-                            uploaded_at, processed_at, metadata
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                        ON CONFLICT (id) DO UPDATE SET
-                            chunk_count = EXCLUDED.chunk_count,
-                            processing_status = EXCLUDED.processing_status,
-                            processed_at = EXCLUDED.processed_at
-                    """,
-                        document.id,
-                        document.filename,
-                        document.original_filename,
-                        document.file_size,
-                        document.page_count,
-                        document.total_chunks,  # Use total_chunks instead of len(chunks)
-                        "completed",  # processing_status - set to completed
-                        document.uploaded_at,
-                        document.uploaded_at,  # processed_at - use uploaded_at as fallback
-                        json.dumps(document.metadata or {}),
-                    )
-
-                    # Insert chunks
-                    for chunk in chunks:
-                        await conn.execute(
-                            """
-                            INSERT INTO document_chunks (
-                                id, document_id, chunk_index, content,
-                                start_char, end_char, token_count, metadata
-                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                            ON CONFLICT (document_id, chunk_index) DO UPDATE SET
-                                content = EXCLUDED.content,
-                                start_char = EXCLUDED.start_char,
-                                end_char = EXCLUDED.end_char,
-                                token_count = EXCLUDED.token_count,
-                                metadata = EXCLUDED.metadata
-                        """,
-                            chunk.id,
-                            chunk.document_id,
-                            chunk.chunk_index,
-                            chunk.content,
-                            chunk.start_char,
-                            chunk.end_char,
-                            chunk.token_count,
-                            json.dumps(chunk.metadata or {}),
-                        )
+                # Insert document
+                await conn.execute(
+                    """
+                    INSERT INTO documents (
+                        id, filename, original_filename, file_size,
+                        page_count, chunk_count, processing_status,
+                        uploaded_at, processed_at, metadata
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    ON CONFLICT (id) DO UPDATE SET
+                        chunk_count = EXCLUDED.chunk_count,
+                        processing_status = EXCLUDED.processing_status,
+                        processed_at = EXCLUDED.processed_at
+                """,
+                    document.id,
+                    document.filename,
+                    document.original_filename,
+                    document.file_size,
+                    document.page_count,
+                    document.total_chunks,  # Use total_chunks instead of len(chunks)
+                    "completed",  # processing_status - set to completed
+                    document.uploaded_at,
+                    document.uploaded_at,  # processed_at - use uploaded_at as fallback
+                    json.dumps(document.metadata or {}),
+                )
 
             logger.info(f"✅ Stored document {document.id} with {len(chunks)} chunks")
             return True
@@ -282,7 +223,7 @@ class DatabaseService:
 
     async def delete_document(self, document_id: str) -> bool:
         """
-        Delete document and all associated chunks.
+        Delete document from database.
 
         Args:
             document_id: Document UUID
@@ -295,31 +236,22 @@ class DatabaseService:
 
         try:
             async with self.pool.acquire() as conn:
-                async with conn.transaction():
-                    # Delete chunks (will cascade from document deletion)
-                    await conn.execute(
-                        """
-                        DELETE FROM document_chunks WHERE document_id = $1
-                    """,
-                        document_id,
-                    )
+                # Delete document
+                doc_result = await conn.execute(
+                    """
+                    DELETE FROM documents WHERE id = $1
+                """,
+                    document_id,
+                )
 
-                    # Delete document
-                    doc_result = await conn.execute(
-                        """
-                        DELETE FROM documents WHERE id = $1
-                    """,
-                        document_id,
-                    )
+                deleted = doc_result.split()[-1] == "1"
 
-                    deleted = doc_result.split()[-1] == "1"
+                if deleted:
+                    logger.info(f"✅ Deleted document {document_id}")
+                else:
+                    logger.warning(f"Document {document_id} not found for deletion")
 
-                    if deleted:
-                        logger.info(f"✅ Deleted document {document_id}")
-                    else:
-                        logger.warning(f"Document {document_id} not found for deletion")
-
-                    return deleted
+                return deleted
 
         except Exception as e:
             logger.error(f"❌ Failed to delete document {document_id}: {str(e)}")
@@ -425,36 +357,7 @@ class DatabaseService:
             logger.error(f"Failed to get document stats: {str(e)}")
             return {}
 
-    async def mark_chunks_embedded(self, chunk_ids: list[str]) -> bool:
-        """
-        Mark chunks as having embeddings stored.
 
-        Args:
-            chunk_ids: List of chunk UUIDs
-
-        Returns:
-            True if update successful
-        """
-        if not self.pool or not chunk_ids:
-            return False
-
-        try:
-            async with self.pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    UPDATE document_chunks
-                    SET embedding_stored = TRUE
-                    WHERE id = ANY($1)
-                """,
-                    chunk_ids,
-                )
-
-            logger.info(f"✅ Marked {len(chunk_ids)} chunks as embedded")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to mark chunks as embedded: {str(e)}")
-            return False
 
     async def get_status(self) -> dict[str, Any]:
         """
