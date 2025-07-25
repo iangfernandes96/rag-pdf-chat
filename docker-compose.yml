@@ -39,7 +39,7 @@ services:
       qdrant:
         condition: service_started
     entrypoint: [ "/app/entrypoint.sh" ]
-    command: [ "python", "-m", "uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload" ]
+    command: [ "python", "-m", "uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4" ]
 
   # Streamlit Frontend
   frontend:
