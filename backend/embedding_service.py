@@ -61,7 +61,10 @@ class EmbeddingService:
         self.model_name = model_name or settings.embedding.model_name
         self.batch_size = settings.embedding.batch_size
         self.model: SentenceTransformer | None = None
-        self._executor = ThreadPoolExecutor(max_workers=1)
+        # Use multiple workers for parallel batch processing
+        self._executor = ThreadPoolExecutor(
+            max_workers=3, thread_name_prefix="embedding"
+        )
         self.validator = ConfigValidator()
 
     def _handle_encoding_error(
@@ -324,11 +327,55 @@ class EmbeddingService:
             EmbeddingError: If embedding generation fails
         """
         try:
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(self._executor, self.embed_chunks, chunks)
+            # For large chunk sets, use parallel processing
+            if len(chunks) > 50:  # Lower threshold for parallel processing
+                return await self._embed_chunks_parallel(chunks)
+            else:
+                # For smaller sets, use single executor
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(self._executor, self.embed_chunks, chunks)
         except Exception as e:
             logger.error(f"Failed to generate embeddings async: {str(e)}")
             raise EmbeddingError(f"Async embedding generation failed: {str(e)}") from e
+
+    async def _embed_chunks_parallel(
+        self, chunks: list[DocumentChunk]
+    ) -> list[EmbeddingResult]:
+        """
+        Process chunks in parallel sub-batches.
+
+        Args:
+            chunks: List of document chunks to embed
+
+        Returns:
+            List of embedding results
+        """
+        # Split chunks into sub-batches for parallel processing
+        # Use smaller sub-batches for better parallelization
+        sub_batch_size = min(50, len(chunks) // 3)  # Smaller batches for better parallelism
+        sub_batches = [
+            chunks[i : i + sub_batch_size]
+            for i in range(0, len(chunks), sub_batch_size)
+        ]
+
+        logger.info(f"Processing {len(chunks)} chunks in {len(sub_batches)} parallel sub-batches")
+
+        # Process sub-batches in parallel
+        loop = asyncio.get_running_loop()
+        tasks = [
+            loop.run_in_executor(self._executor, self.embed_chunks, sub_batch)
+            for sub_batch in sub_batches
+        ]
+
+        # Wait for all tasks to complete
+        sub_results = await asyncio.gather(*tasks)
+
+        # Flatten results while maintaining order
+        all_results = []
+        for sub_result in sub_results:
+            all_results.extend(sub_result)
+
+        return all_results
 
     def compute_similarity(
         self, embedding1: list[float], embedding2: list[float]

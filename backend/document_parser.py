@@ -33,7 +33,10 @@ class PDFParser:
 
     def __init__(self):
         self.max_file_size = settings.document.max_file_size_mb * 1024 * 1024
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pdf-parser")
+        # Lightweight executor for PDF parsing (I/O bound)
+        self._executor = ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="pdf-parser"
+        )
 
     def validate_pdf(self, file_path: Path) -> tuple[bool, str | None]:
         """
