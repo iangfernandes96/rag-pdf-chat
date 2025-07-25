@@ -33,15 +33,13 @@ services:
       - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_pdf_chat
       - QDRANT_URL=http://qdrant:6333
       - OLLAMA_URL=http://host.docker.internal:11434
-    volumes:
-      - ./data:/app/data
-      - ./backend:/app/backend
     depends_on:
       postgres:
         condition: service_healthy
       qdrant:
         condition: service_started
-    command: [ "uv", "run", "uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload" ]
+    entrypoint: [ "/app/entrypoint.sh" ]
+    command: [ "python", "-m", "uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload" ]
 
   # Streamlit Frontend
   frontend:
@@ -50,12 +48,10 @@ services:
       - "8501:8501"
     environment:
       - BACKEND_URL=http://backend:8000
-    volumes:
-      - ./frontend:/app/frontend
-      - ./data:/app/data
     depends_on:
       - backend
-    command: [ "uv", "run", "streamlit", "run", "frontend/app.py", "--server.address", "0.0.0.0", "--server.port", "8501" ]
+    entrypoint: [ "/app/entrypoint.sh" ]
+    command: [ "streamlit", "run", "frontend/app.py", "--server.address", "0.0.0.0", "--server.port", "8501" ]
 
 volumes:
   postgres_data:

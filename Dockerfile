@@ -27,11 +27,17 @@ RUN uv sync --frozen --no-cache --no-dev
 # Copy application code
 COPY . .
 
-# Create directories for data persistence
-RUN mkdir -p data/docs data/index
+# Install the local package in the uv environment
+RUN uv pip install --no-deps -e .
+
+# Create activation script to avoid uv run overhead
+RUN echo '#!/bin/bash\nexport PATH="/app/.venv/bin:$PATH"\nexec "$@"' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+
+# No local data directories needed - using external databases
 
 # Expose ports
 EXPOSE 8000 8501
 
-# Default command (can be overridden in docker-compose)
-CMD ["uv", "run", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"] 
+# Set entrypoint and default command (can be overridden in docker-compose)
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["python", "-m", "uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"] 

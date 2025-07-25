@@ -40,7 +40,6 @@ class DocumentSettings(BaseModel):
     chunk_overlap: int = 100
     max_file_size_mb: int = 50
     allowed_extensions: List[str] = ["pdf"]
-    upload_dir: str = "data/docs"
 
 
 class Settings:
@@ -82,8 +81,7 @@ class Settings:
             chunk_size=int(os.getenv("CHUNK_SIZE", "500")),
             chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "100")),
             max_file_size_mb=int(os.getenv("MAX_FILE_SIZE_MB", "50")),
-            allowed_extensions=["pdf"],
-            upload_dir=os.getenv("UPLOAD_DIR", "data/docs")
+            allowed_extensions=["pdf"]
         )
 
 

@@ -169,7 +169,6 @@ class PDFParser:
             document = Document(
                 filename=file_path.name,
                 original_filename=original_filename,
-                file_path=str(file_path),
                 file_size=file_path.stat().st_size,
                 content=content,
                 page_count=page_count,

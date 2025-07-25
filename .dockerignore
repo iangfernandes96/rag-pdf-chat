@@ -36,9 +36,9 @@ Dockerfile*
 docker-compose*
 .dockerignore
 
-# Data (we'll mount these as volumes)
-data/docs/*
-data/index/*
+# Data directories no longer needed
+# data/docs/* - PDFs processed in memory only  
+# data/index/* - Using Qdrant vector database
 
 # Logs
 *.log

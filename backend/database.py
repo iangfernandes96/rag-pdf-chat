@@ -66,7 +66,6 @@ class DatabaseService:
                     id UUID PRIMARY KEY,
                     filename VARCHAR(255) NOT NULL,
                     original_filename VARCHAR(255) NOT NULL,
-                    file_path TEXT,
                     file_size BIGINT NOT NULL,
                     content TEXT,
                     page_count INTEGER DEFAULT 0,
@@ -156,17 +155,16 @@ class DatabaseService:
                     # Insert document
                     await conn.execute("""
                         INSERT INTO documents (
-                            id, filename, original_filename, file_path, file_size,
+                            id, filename, original_filename, file_size,
                             content, page_count, chunk_count, processing_status,
                             uploaded_at, processed_at, metadata
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                         ON CONFLICT (id) DO UPDATE SET
                             chunk_count = EXCLUDED.chunk_count,
                             processing_status = EXCLUDED.processing_status,
                             processed_at = EXCLUDED.processed_at
                     """, 
                         document.id, document.filename, document.original_filename,
-                        str(document.file_path) if document.file_path else None,
                         document.file_size, document.content, document.page_count,
                         len(chunks), document.processing_status,
                         document.uploaded_at, document.processed_at,

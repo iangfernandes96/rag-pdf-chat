@@ -25,7 +25,6 @@ class Document(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     filename: str
     original_filename: str
-    file_path: str
     file_size: int
     content: str
     page_count: Optional[int] = None

@@ -2,15 +2,12 @@
 Document ingestion service that orchestrates PDF processing and text chunking.
 """
 import logging
-import shutil
 from pathlib import Path
 from typing import List, Optional
-from uuid import uuid4
 
 from .models import Document, DocumentChunk, ProcessingResult
 from .document_parser import PDFParser
 from .text_chunker import TextChunker
-from .config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,17 +18,15 @@ class DocumentIngestionService:
     def __init__(self):
         self.pdf_parser = PDFParser()
         self.text_chunker = TextChunker()
-        self.upload_dir = Path(settings.document.upload_dir)
-        self.upload_dir.mkdir(parents=True, exist_ok=True)
     
     def ingest_document(self, 
-                       file_path: Path, 
-                       original_filename: str) -> ProcessingResult:
+                        file_path: Path, 
+                        original_filename: str) -> ProcessingResult:
         """
         Complete document ingestion pipeline.
         
         Args:
-            file_path: Path to the uploaded file
+            file_path: Path to the uploaded file (temporary)
             original_filename: Original name of the file
             
         Returns:
@@ -40,25 +35,21 @@ class DocumentIngestionService:
         logger.info(f"Starting document ingestion for: {original_filename}")
         
         try:
-            # Generate unique filename and move to upload directory
-            file_extension = file_path.suffix
-            unique_filename = f"{uuid4()}{file_extension}"
-            target_path = self.upload_dir / unique_filename
+            # Process PDF directly from temporary file (no permanent storage)
+            logger.info(f"Processing PDF directly: {file_path}")
+            pdf_result = self.pdf_parser.process_pdf(
+                file_path, original_filename
+            )
             
-            # Copy file to permanent location
-            shutil.copy2(file_path, target_path)
-            logger.info(f"File copied to: {target_path}")
-            
-            # Process PDF
-            pdf_result = self.pdf_parser.process_pdf(target_path, original_filename)
-            
-            if not pdf_result.success:
+            if not pdf_result.success or not pdf_result.document:
                 return pdf_result
+            
+            document = pdf_result.document
             
             # Chunk the text
             chunks = self.text_chunker.chunk_text(
-                document_id=pdf_result.document.id,
-                text=pdf_result.document.content,
+                document_id=document.id,
+                text=document.content,
                 metadata={"source": "pdf_extraction"}
             )
             
@@ -66,10 +57,12 @@ class DocumentIngestionService:
             chunks = self.text_chunker.merge_small_chunks(chunks)
             
             # Update document with chunk count
-            pdf_result.document.chunk_count = len(chunks)
+            document.chunk_count = len(chunks)
             
-            logger.info(f"Successfully ingested document {original_filename}: "
-                       f"{len(chunks)} chunks created")
+            logger.info(
+                f"Successfully ingested document {original_filename}: "
+                f"{len(chunks)} chunks created"
+            )
             
             return ProcessingResult(
                 success=True,
@@ -79,54 +72,65 @@ class DocumentIngestionService:
             )
             
         except Exception as e:
-            logger.error(f"Document ingestion failed for {original_filename}: {str(e)}")
+            logger.error(
+                f"Document ingestion failed for {original_filename}: {str(e)}"
+            )
             return ProcessingResult(
                 success=False,
                 error_message=f"Ingestion failed: {str(e)}"
             )
     
-    def validate_upload(self, file_path: Path) -> tuple[bool, Optional[str]]:
+    def validate_upload(self, 
+                       file_path: Path, 
+                       max_size_mb: int = 50) -> tuple[bool, Optional[str]]:
         """
         Validate uploaded file before processing.
         
         Args:
-            file_path: Path to the uploaded file
+            file_path: Path to uploaded file
+            max_size_mb: Maximum allowed file size in MB
             
         Returns:
             Tuple of (is_valid, error_message)
         """
-        if not file_path.exists():
-            return False, "File does not exist"
-        
-        # Check file extension
-        allowed_extensions = [f".{ext}" for ext in settings.document.allowed_extensions]
-        if file_path.suffix.lower() not in allowed_extensions:
-            return False, f"File type not supported. Allowed: {', '.join(allowed_extensions)}"
-        
-        # Check file size
-        max_size = settings.document.max_file_size_mb * 1024 * 1024
-        if file_path.stat().st_size > max_size:
-            return False, f"File size exceeds {settings.document.max_file_size_mb}MB limit"
-        
-        return True, None
+        try:
+            # Check file exists
+            if not file_path.exists():
+                return False, "File does not exist"
+            
+            # Check file size
+            file_size_mb = file_path.stat().st_size / (1024 * 1024)
+            if file_size_mb > max_size_mb:
+                return False, f"File too large: {file_size_mb:.1f}MB > {max_size_mb}MB"
+            
+            # Check file extension
+            if not file_path.suffix.lower() == '.pdf':
+                return False, "Only PDF files are supported"
+            
+            return True, None
+            
+        except Exception as e:
+            return False, f"Validation error: {str(e)}"
     
-    def get_document_stats(self, document: Document, chunks: List[DocumentChunk]) -> dict:
+    def get_document_stats(self, 
+                          document: Document, 
+                          chunks: List[DocumentChunk]) -> dict:
         """
-        Generate statistics for a processed document.
+        Calculate document processing statistics.
         
         Args:
             document: Processed document
-            chunks: Document chunks
+            chunks: Generated chunks
             
         Returns:
-            Dictionary with document statistics
+            Dictionary with statistics
         """
         if not chunks:
             return {
                 "total_chunks": 0,
                 "avg_chunk_size": 0,
                 "total_tokens": 0,
-                "processing_time": 0
+                "avg_tokens_per_chunk": 0
             }
         
         chunk_sizes = [len(chunk.content) for chunk in chunks]
@@ -134,33 +138,22 @@ class DocumentIngestionService:
         
         return {
             "total_chunks": len(chunks),
-            "avg_chunk_size": sum(chunk_sizes) / len(chunk_sizes),
+            "avg_chunk_size": sum(chunk_sizes) // len(chunks),
             "min_chunk_size": min(chunk_sizes),
             "max_chunk_size": max(chunk_sizes),
             "total_tokens": sum(token_counts),
-            "avg_tokens_per_chunk": sum(token_counts) / len(token_counts),
-            "file_size_mb": document.file_size / (1024 * 1024),
-            "page_count": document.page_count,
-            "chars_per_page": len(document.content) / (document.page_count or 1)
+            "avg_tokens_per_chunk": (
+                sum(token_counts) // len(chunks) if chunks else 0
+            ),
+            "document_size_bytes": document.file_size,
+            "pages": document.page_count or 0
         }
     
-    def cleanup_failed_upload(self, file_path: Path) -> None:
+    def get_chunk_by_id(self, 
+                       chunks: List[DocumentChunk], 
+                       chunk_id: str) -> Optional[DocumentChunk]:
         """
-        Clean up files from failed uploads.
-        
-        Args:
-            file_path: Path to the file to clean up
-        """
-        try:
-            if file_path.exists():
-                file_path.unlink()
-                logger.info(f"Cleaned up failed upload: {file_path}")
-        except Exception as e:
-            logger.error(f"Failed to cleanup file {file_path}: {str(e)}")
-    
-    def get_chunk_by_id(self, chunks: List[DocumentChunk], chunk_id: str) -> Optional[DocumentChunk]:
-        """
-        Find a chunk by its ID.
+        Retrieve a specific chunk by ID.
         
         Args:
             chunks: List of chunks to search
@@ -169,28 +162,38 @@ class DocumentIngestionService:
         Returns:
             DocumentChunk if found, None otherwise
         """
-        return next((chunk for chunk in chunks if chunk.id == chunk_id), None)
+        for chunk in chunks:
+            if chunk.id == chunk_id:
+                return chunk
+        return None
     
     def get_chunks_with_context(self, 
                                chunks: List[DocumentChunk], 
-                               chunk_indices: List[int], 
-                               context_size: int = 1) -> List[str]:
+                               target_chunk_id: str, 
+                               context_size: int = 1) -> List[DocumentChunk]:
         """
-        Get multiple chunks with their surrounding context.
+        Get a chunk along with surrounding context chunks.
         
         Args:
-            chunks: List of all document chunks
-            chunk_indices: Indices of chunks to retrieve
-            context_size: Number of surrounding chunks to include
+            chunks: List of all chunks
+            target_chunk_id: ID of the target chunk
+            context_size: Number of chunks before/after to include
             
         Returns:
-            List of context strings for each requested chunk
+            List of chunks including context
         """
-        contexts = []
-        for chunk_index in chunk_indices:
-            context = self.text_chunker.get_chunk_context(
-                chunks, chunk_index, context_size
-            )
-            contexts.append(context)
+        # Find target chunk index
+        target_index = None
+        for i, chunk in enumerate(chunks):
+            if chunk.id == target_chunk_id:
+                target_index = i
+                break
         
-        return contexts 
+        if target_index is None:
+            return []
+        
+        # Calculate context range
+        start_idx = max(0, target_index - context_size)
+        end_idx = min(len(chunks), target_index + context_size + 1)
+        
+        return chunks[start_idx:end_idx] 
