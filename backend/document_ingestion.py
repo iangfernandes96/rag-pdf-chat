@@ -8,7 +8,7 @@ from pathlib import Path
 from .document_parser import PDFParser
 from .models import Document, DocumentChunk, ProcessingResult
 from .text_chunker import TextChunker
-from .utils.timing import time_function, time_async_function
+from .utils.timing import time_async_function
 
 logger = logging.getLogger(__name__)
 

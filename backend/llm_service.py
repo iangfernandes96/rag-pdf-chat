@@ -6,7 +6,6 @@ Handles prompt formatting, model interaction, and response generation.
 import asyncio
 import json
 import logging
-import time
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from functools import wraps
@@ -15,6 +14,7 @@ from typing import Any
 import httpx
 
 from .config import settings
+from .utils.timing import time_async_function
 
 logger = logging.getLogger(__name__)
 
@@ -323,6 +323,7 @@ class LLMService:
         except Exception as e:
             raise LLMError(f"Failed to pull model {self.model_name}: {str(e)}") from e
 
+    @time_async_function
     async def generate_rag_response(
         self,
         query: str,
@@ -344,8 +345,6 @@ class LLMService:
         """
         if not self.client or not self.model_loaded:
             raise LLMError("LLM service not initialized")
-
-        start_time = time.time()
 
         try:
             # Format context with optimized string operations
@@ -380,15 +379,13 @@ class LLMService:
             # Generate response with optimized payload
             response_data = await self._generate_completion(messages)
 
-            generation_time = time.time() - start_time
-
-            logger.info(f"✅ Response generated in {generation_time:.2f}s")
+            logger.info("✅ Response generated successfully")
 
             return {
                 "success": True,
                 "answer": response_data["response"],
                 "model_used": self.model_name,
-                "generation_time": generation_time,
+                "generation_time": 0.0,  # Will be provided by decorator
                 "total_tokens": response_data.get("eval_count", 0),
                 "prompt_tokens": response_data.get("prompt_eval_count", 0),
                 "context_chunks": len(context_chunks),
@@ -400,7 +397,7 @@ class LLMService:
                 "success": False,
                 "error": str(e),
                 "model_used": self.model_name,
-                "generation_time": time.time() - start_time,
+                "generation_time": 0.0,  # Will be provided by decorator
             }
 
     async def _generate_completion(
@@ -437,6 +434,7 @@ class LLMService:
         except Exception as e:
             raise LLMError(f"Request failed: {str(e)}") from e
 
+    @time_async_function
     async def generate_simple_response(self, prompt: str) -> dict[str, Any]:
         """
         Generate a simple response without RAG context.
@@ -450,19 +448,16 @@ class LLMService:
         if not self.client or not self.model_loaded:
             raise LLMError("LLM service not initialized")
 
-        start_time = time.time()
-
         try:
             messages = [{"role": "user", "content": prompt}]
 
             response_data = await self._generate_completion(messages)
-            generation_time = time.time() - start_time
 
             return {
                 "success": True,
                 "answer": response_data["response"],
                 "model_used": self.model_name,
-                "generation_time": generation_time,
+                "generation_time": 0.0,  # Will be provided by decorator
                 "total_tokens": response_data.get("eval_count", 0),
             }
 
@@ -472,7 +467,7 @@ class LLMService:
                 "success": False,
                 "error": str(e),
                 "model_used": self.model_name,
-                "generation_time": time.time() - start_time,
+                "generation_time": 0.0,  # Will be provided by decorator
             }
 
     async def generate_rag_response_streaming(

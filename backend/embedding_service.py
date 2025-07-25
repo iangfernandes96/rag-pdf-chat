@@ -4,7 +4,6 @@ Embedding service for generating vector embeddings from text chunks.
 
 import asyncio
 import logging
-import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -76,6 +75,7 @@ class EmbeddingService:
         logger.error(error_msg)
         raise EmbeddingError(f"{operation.title()} failed: {str(error)}") from error
 
+    @time_function
     def load_model(self) -> None:
         """Load the sentence transformer model with validation."""
         if self.model is not None:
@@ -90,18 +90,15 @@ class EmbeddingService:
             raise EmbeddingError(f"Configuration invalid: {error_msg}")
 
         logger.info(f"Loading embedding model: {self.model_name}")
-        start_time = time.time()
 
         try:
             self.model = SentenceTransformer(self.model_name)
-            load_time = time.time() - start_time
 
             # Get model info
             embedding_dim = self.model.get_sentence_embedding_dimension()
 
             logger.info(f"Successfully loaded {self.model_name}")
             logger.info(f"Embedding dimension: {embedding_dim}")
-            logger.info(f"Load time: {load_time:.2f} seconds")
 
             # Verify expected dimension matches config
             if embedding_dim != settings.vector.vector_size:
@@ -154,6 +151,7 @@ class EmbeddingService:
         # Single vectorized conversion instead of loop
         return embeddings.astype(np.float32).tolist()
 
+    @time_function
     def generate_embedding(self, text: str) -> tuple[list[float], float]:
         """
         Generate embedding for a single text with optimized processing.
@@ -172,24 +170,18 @@ class EmbeddingService:
             logger.warning("Empty text provided for embedding")
             return [0.0] * settings.vector.vector_size, 0.0
 
-        start_time = time.time()
-
         try:
             # Generate embedding with optimized parameters
             embedding = self.model.encode(
                 cleaned_text, convert_to_numpy=True, normalize_embeddings=True
             )
-            generation_time = time.time() - start_time
 
             # Direct conversion without unnecessary steps
             embedding_list = embedding.astype(np.float32).tolist()
 
-            logger.debug(
-                f"Generated embedding for text ({len(cleaned_text)} chars) "
-                f"in {generation_time:.3f}s"
-            )
+            logger.debug(f"Generated embedding for text ({len(cleaned_text)} chars)")
 
-            return embedding_list, generation_time
+            return embedding_list, 0.0  # Time will be provided by decorator
 
         except Exception as e:
             self._handle_encoding_error(
@@ -198,6 +190,7 @@ class EmbeddingService:
                 {"text_length": len(cleaned_text)},
             )
 
+    @time_function
     def generate_embeddings_batch(
         self, texts: list[str]
     ) -> tuple[list[list[float]], float]:
@@ -226,7 +219,6 @@ class EmbeddingService:
             return [empty_embedding] * len(texts), 0.0
 
         logger.info(f"Generating embeddings for {len(valid_texts)} texts")
-        start_time = time.time()
 
         try:
             # Process in batches with memory efficiency
@@ -245,16 +237,11 @@ class EmbeddingService:
                 batch_embeddings_list = self._convert_embeddings_batch(batch_embeddings)
                 all_embeddings.extend(batch_embeddings_list)
 
-            generation_time = time.time() - start_time
-
-            avg_time = generation_time / len(all_embeddings)
-            logger.info(
-                f"Generated {len(all_embeddings)} embeddings "
-                f"in {generation_time:.2f}s"
-            )
+            avg_time = 0.0  # Will be calculated by decorator
+            logger.info(f"Generated {len(all_embeddings)} embeddings")
             logger.info(f"Average time per embedding: {avg_time:.3f}s")
 
-            return all_embeddings, generation_time
+            return all_embeddings, 0.0  # Time will be provided by decorator
 
         except Exception as e:
             self._handle_encoding_error(
@@ -333,7 +320,9 @@ class EmbeddingService:
             else:
                 # For smaller sets, use single executor
                 loop = asyncio.get_running_loop()
-                return await loop.run_in_executor(self._executor, self.embed_chunks, chunks)
+                return await loop.run_in_executor(
+                    self._executor, self.embed_chunks, chunks
+                )
         except Exception as e:
             logger.error(f"Failed to generate embeddings async: {str(e)}")
             raise EmbeddingError(f"Async embedding generation failed: {str(e)}") from e
@@ -352,13 +341,17 @@ class EmbeddingService:
         """
         # Split chunks into sub-batches for parallel processing
         # Use smaller sub-batches for better parallelization
-        sub_batch_size = min(50, len(chunks) // 3)  # Smaller batches for better parallelism
+        sub_batch_size = min(
+            50, len(chunks) // 3
+        )  # Smaller batches for better parallelism
         sub_batches = [
             chunks[i : i + sub_batch_size]
             for i in range(0, len(chunks), sub_batch_size)
         ]
 
-        logger.info(f"Processing {len(chunks)} chunks in {len(sub_batches)} parallel sub-batches")
+        logger.info(
+            f"Processing {len(chunks)} chunks in {len(sub_batches)} parallel sub-batches"
+        )
 
         # Process sub-batches in parallel
         loop = asyncio.get_running_loop()
