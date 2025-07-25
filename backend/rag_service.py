@@ -331,7 +331,7 @@ class RAGService:
 
         return snippet
 
-    def cleanup(self) -> None:
+    async def cleanup(self) -> None:
         """Clean up resources."""
         try:
             self.embedding_service.cleanup()
