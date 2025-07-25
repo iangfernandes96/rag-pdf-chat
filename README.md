@@ -34,6 +34,7 @@
 | Backend          | FastAPI + Python            | ✅ Phase 4 |
 | Frontend         | Streamlit                   | ✅ Phase 5 |
 | UX Polish        | Enhanced error handling     | ✅ Phase 6 |
+| Code Quality     | Black + Ruff               | ✅ Latest |
 
 ---
 
@@ -94,22 +95,38 @@ docker compose up
 
 ---
 
-## 🧪 Testing
+## 🧪 Testing & Code Quality
 
-### Run All Tests
+### Code Quality Tools ⭐ **NEW**
+The project includes **Black** and **Ruff** for code formatting and linting:
+
 ```bash
-./run_tests.sh
+# 🔧 Format code (run this before committing)
+./format.sh
+
+# 🔍 Check code quality without making changes  
+./lint.sh
+
+# 🚀 Comprehensive check: format + lint + tests
+./check.sh
 ```
 
-### Individual Phase Testing
+### Manual Quality Commands
 ```bash
-uv run python test_phase2_simple.py          # Core components
-uv run python test_document_ingestion.py     # PDF processing  
-uv run python test_phase3_async.py           # Embedding & vector ops
-uv run python test_phase4_api.py             # FastAPI backend
-uv run python test_phase5_frontend.py        # Streamlit frontend
-uv run python enhance_ux.py                  # UX enhancements
+# Format with Black
+uv run black backend/ frontend/
+
+# Lint with Ruff
+uv run ruff check backend/ frontend/
+
+# Auto-fix linting issues
+uv run ruff check backend/ frontend/ --fix
 ```
+
+### Configuration
+- **Black**: Line length 88, Python 3.11+ target
+- **Ruff**: pycodestyle, pyflakes, isort, bugbear rules
+- **Config**: All settings in `pyproject.toml`
 
 ---
 
