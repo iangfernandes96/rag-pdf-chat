@@ -224,7 +224,7 @@ class RAGService:
             self.validator.validate_document_params(file_path, original_filename)
 
             # Step 1: Ingest document (PDF parsing and chunking)
-            ingestion_result = self.ingestion_service.ingest_document(
+            ingestion_result = await self.ingestion_service.ingest_document(
                 file_path, original_filename
             )
 
