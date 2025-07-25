@@ -12,7 +12,7 @@ from sentence_transformers import SentenceTransformer
 
 from .config import settings
 from .models import DocumentChunk, EmbeddingResult
-from .utils.timing import time_function, time_async_function
+from .utils.timing import time_async_function, time_function
 
 logger = logging.getLogger(__name__)
 

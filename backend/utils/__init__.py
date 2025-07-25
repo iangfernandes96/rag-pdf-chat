@@ -1,1 +1,1 @@
-"""Utility modules for the RAG PDF Chat application.""" 
+"""Utility modules for the RAG PDF Chat application."""

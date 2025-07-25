@@ -13,8 +13,8 @@ from typing import Any
 from .constants import DefaultValues, SnippetSettings
 from .document_ingestion import DocumentIngestionService
 from .embedding_service import EmbeddingService
-from .vector_store import VectorStore
 from .utils.timing import time_async_function
+from .vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 

@@ -281,9 +281,9 @@ async def upload_document(file: UploadFile = File(...)):
         # Process document through RAG service with detailed timing
         start_time = datetime.now(UTC)
         logger.info(f"Starting document processing at {start_time}")
-        
+
         result = await rag_service.process_document(temp_file, file.filename)
-        
+
         end_time = datetime.now(UTC)
         processing_time = (end_time - start_time).total_seconds()
         logger.info(f"Document processing completed in {processing_time:.2f} seconds")

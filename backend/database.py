@@ -364,8 +364,6 @@ class DatabaseService:
             logger.error(f"Failed to get document stats: {str(e)}")
             return {}
 
-
-
     @time_async_function
     async def get_status(self) -> dict[str, Any]:
         """
