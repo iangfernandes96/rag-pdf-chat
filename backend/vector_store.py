@@ -446,6 +446,7 @@ class VectorStore:
         )
 
     @performance_monitor
+    @time_async_function
     async def store_embeddings(
         self,
         chunks: list[DocumentChunk],
@@ -531,6 +532,7 @@ class VectorStore:
         }
 
     @performance_monitor
+    @time_async_function
     async def search_similar(
         self,
         query_embedding: list[float],
@@ -654,6 +656,7 @@ class VectorStore:
             return None
 
     @performance_monitor
+    @time_async_function
     async def delete_document_chunks(self, document_id: str) -> bool:
         """
         Delete all chunks for a specific document.
@@ -700,6 +703,7 @@ class VectorStore:
             return False
 
     @performance_monitor
+    @time_async_function
     async def get_collection_info(self) -> dict[str, Any]:
         """
         Get information about the collection with performance metrics.

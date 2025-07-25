@@ -15,6 +15,7 @@ from asyncpg import Connection, Pool
 from .config import settings
 from .constants import DefaultValues
 from .models import Document
+from .utils.timing import time_async_function
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,7 @@ class DatabaseService:
 
             logger.info("✅ Database tables created/verified")
 
+    @time_async_function
     async def store_document_metadata(
         self, document: Document, chunks: list[Any]
     ) -> bool:
@@ -162,6 +164,7 @@ class DatabaseService:
             logger.error(f"❌ Failed to store document metadata: {str(e)}")
             return False
 
+    @time_async_function
     async def get_document_by_id(self, document_id: str) -> dict[str, Any] | None:
         """
         Retrieve document by ID.
@@ -192,6 +195,7 @@ class DatabaseService:
             logger.error(f"Failed to get document {document_id}: {str(e)}")
             return None
 
+    @time_async_function
     async def get_all_documents(self) -> list[dict[str, Any]]:
         """
         Get all documents with metadata.
@@ -221,6 +225,7 @@ class DatabaseService:
             logger.error(f"Failed to get all documents: {str(e)}")
             return []
 
+    @time_async_function
     async def delete_document(self, document_id: str) -> bool:
         """
         Delete document from database.
@@ -257,6 +262,7 @@ class DatabaseService:
             logger.error(f"❌ Failed to delete document {document_id}: {str(e)}")
             return False
 
+    @time_async_function
     async def log_query_session(
         self,
         query: str,
@@ -309,6 +315,7 @@ class DatabaseService:
             logger.error(f"Failed to log query session: {str(e)}")
             return False
 
+    @time_async_function
     async def get_document_stats(self) -> dict[str, Any]:
         """
         Get statistics about stored documents.
@@ -359,6 +366,7 @@ class DatabaseService:
 
 
 
+    @time_async_function
     async def get_status(self) -> dict[str, Any]:
         """
         Get database service status.
