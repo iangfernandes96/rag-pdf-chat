@@ -6,7 +6,7 @@ document processing, embedding, and similarity search.
 import asyncio
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -319,7 +319,7 @@ class RAGService:
         """
         # Create cache key
         cache_key = f"query:{hash(query.strip().lower())}"
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
 
         # Check cache first
         if cache_key in self._query_cache:

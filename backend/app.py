@@ -5,7 +5,7 @@ FastAPI backend for RAG PDF Chat system.
 import logging
 import tempfile
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -213,7 +213,7 @@ async def health_check():
 
         return HealthResponse(
             status="healthy" if overall_healthy else "degraded",
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             services=services,
             version="1.0.0",
         )
@@ -279,9 +279,9 @@ async def upload_document(file: UploadFile = File(...)):
         logger.info(f"Processing uploaded file: {file.filename} ({file_size} bytes)")
 
         # Process document through RAG service
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
         result = await rag_service.process_document(temp_file, file.filename)
-        processing_time = (datetime.utcnow() - start_time).total_seconds()
+        processing_time = (datetime.now(UTC) - start_time).total_seconds()
 
         if not result["success"]:
             raise HTTPException(
@@ -342,7 +342,7 @@ async def query_documents(request: QueryRequest):
         )
 
     try:
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
 
         logger.info(f"Processing query: {request.query}")
 
@@ -367,7 +367,7 @@ async def query_documents(request: QueryRequest):
                 query=request.query,
                 answer="I couldn't find any relevant information in the uploaded documents to answer your question.",
                 sources=[],
-                response_time=(datetime.utcnow() - start_time).total_seconds(),
+                response_time=(datetime.now(UTC) - start_time).total_seconds(),
                 model_used="N/A",
                 chunks_used=0,
             )
@@ -385,7 +385,7 @@ async def query_documents(request: QueryRequest):
                 detail=f"LLM generation failed: {llm_response.get('error', 'Unknown error')}",
             )
 
-        response_time = (datetime.utcnow() - start_time).total_seconds()
+        response_time = (datetime.now(UTC) - start_time).total_seconds()
 
         # Format source information
         sources = []

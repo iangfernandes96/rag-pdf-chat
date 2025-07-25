@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import wraps
 from typing import Any
 
@@ -185,7 +185,7 @@ def performance_monitor(func):
             if hasattr(self, "_performance_metrics"):
                 self._performance_metrics[operation_name] = {
                     "last_execution_time": execution_time,
-                    "timestamp": datetime.utcnow(),
+                    "timestamp": datetime.now(UTC),
                 }
 
             return result
@@ -238,7 +238,7 @@ class SearchResultCache:
 
         if cache_key in self._cache:
             cached_entry = self._cache[cache_key]
-            if datetime.utcnow() - cached_entry["timestamp"] < self.ttl:
+            if datetime.now(UTC) - cached_entry["timestamp"] < self.ttl:
                 logger.debug(SystemMessages.CACHE_HIT)
                 return cached_entry["results"]
             else:
@@ -266,7 +266,7 @@ class SearchResultCache:
 
         self._cache[cache_key] = {
             "results": results,
-            "timestamp": datetime.utcnow(),
+            "timestamp": datetime.now(UTC),
         }
 
         logger.debug("Cached search results for query")

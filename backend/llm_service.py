@@ -8,7 +8,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import wraps
 from typing import Any
 
@@ -262,7 +262,7 @@ class LLMService:
         Returns:
             List of available model names
         """
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         cache_key = "available_models"
 
         # Check cache first

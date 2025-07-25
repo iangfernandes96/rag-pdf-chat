@@ -6,7 +6,7 @@ Handles document metadata storage, user information, and session management.
 import json
 import logging
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import asyncpg
@@ -420,7 +420,7 @@ class DatabaseService:
                 return {
                     "documents": dict(doc_stats) if doc_stats else {},
                     "queries": dict(query_stats) if query_stats else {},
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 }
 
         except Exception as e:

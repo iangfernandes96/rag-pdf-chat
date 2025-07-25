@@ -309,18 +309,23 @@ class EmbeddingService:
         self, chunks: list[DocumentChunk]
     ) -> list[EmbeddingResult]:
         """
-        Generate embeddings for document chunks asynchronously.
+        Generate embeddings for multiple chunks asynchronously.
 
         Args:
             chunks: List of document chunks to embed
 
         Returns:
-            List of EmbeddingResult objects
-        """
-        loop = asyncio.get_event_loop()
+            List of embedding results
 
-        # Run optimized embedding in thread pool to avoid blocking
-        return await loop.run_in_executor(self._executor, self.embed_chunks, chunks)
+        Raises:
+            EmbeddingError: If embedding generation fails
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(self._executor, self.embed_chunks, chunks)
+        except Exception as e:
+            logger.error(f"Failed to generate embeddings async: {str(e)}")
+            raise EmbeddingError(f"Async embedding generation failed: {str(e)}") from e
 
     def compute_similarity(
         self, embedding1: list[float], embedding2: list[float]
