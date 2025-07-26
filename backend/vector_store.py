@@ -5,7 +5,6 @@ Async vector store service using Qdrant for embedding storage and similarity sea
 import asyncio
 import hashlib
 import logging
-import time
 from datetime import UTC, datetime, timedelta
 from functools import wraps
 from typing import Any
@@ -166,39 +165,7 @@ def retry_with_exponential_backoff(
     return decorator
 
 
-def performance_monitor(func):
-    """Decorator for monitoring operation performance."""
-
-    @wraps(func)
-    async def wrapper(self, *args, **kwargs):
-        start_time = time.time()
-        operation_name = func.__name__
-
-        try:
-            result = await func(self, *args, **kwargs)
-            execution_time = time.time() - start_time
-
-            logger.debug(
-                f"Vector operation '{operation_name}' completed in {execution_time:.3f}s"
-            )
-
-            # Store performance metrics if available
-            if hasattr(self, "_performance_metrics"):
-                self._performance_metrics[operation_name] = {
-                    "last_execution_time": execution_time,
-                    "timestamp": datetime.now(UTC),
-                }
-
-            return result
-
-        except Exception as e:
-            execution_time = time.time() - start_time
-            logger.error(
-                f"Vector operation '{operation_name}' failed after {execution_time:.3f}s: {str(e)}"
-            )
-            raise
-
-    return wrapper
+# Removed custom performance_monitor decorator - using time_async_function instead
 
 
 class SearchResultCache:
@@ -318,7 +285,7 @@ class VectorStore:
         )
 
     @retry_with_exponential_backoff()
-    @performance_monitor
+    @time_async_function
     async def connect(self) -> None:
         """Connect to Qdrant database with retry logic."""
         if self.client is not None:
@@ -339,7 +306,7 @@ class VectorStore:
             logger.error(f"Failed to connect to Qdrant: {str(e)}")
             raise VectorStoreError(f"Qdrant connection failed: {str(e)}") from e
 
-    @performance_monitor
+    @time_async_function
     async def create_collection(self, overwrite: bool = False) -> bool:
         """
         Create a collection for storing document embeddings.
@@ -445,7 +412,6 @@ class VectorStore:
             f"status: {operation_info.status}"
         )
 
-    @performance_monitor
     @time_async_function
     async def store_embeddings(
         self,
@@ -531,7 +497,6 @@ class VectorStore:
             "metadata": scored_point.payload.get("metadata", {}),
         }
 
-    @performance_monitor
     @time_async_function
     async def search_similar(
         self,
@@ -612,7 +577,7 @@ class VectorStore:
             logger.error(f"Failed to search similar chunks: {str(e)}")
             raise VectorStoreError(f"Similarity search failed: {str(e)}") from e
 
-    @performance_monitor
+    @time_async_function
     async def get_chunk_by_id(self, chunk_id: str) -> dict[str, Any] | None:
         """
         Retrieve a specific chunk by ID.
@@ -655,7 +620,6 @@ class VectorStore:
             logger.error(f"Failed to retrieve chunk {chunk_id}: {str(e)}")
             return None
 
-    @performance_monitor
     @time_async_function
     async def delete_document_chunks(self, document_id: str) -> bool:
         """
@@ -702,7 +666,6 @@ class VectorStore:
             logger.error(f"Failed to delete document chunks: {str(e)}")
             return False
 
-    @performance_monitor
     @time_async_function
     async def get_collection_info(self) -> dict[str, Any]:
         """
@@ -739,7 +702,7 @@ class VectorStore:
             logger.error(f"Failed to get collection info: {str(e)}")
             return {"error": str(e)}
 
-    @performance_monitor
+    @time_async_function
     async def health_check(self) -> bool:
         """
         Check if Qdrant is healthy and accessible.

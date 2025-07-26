@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from .constants import DefaultValues
+from .constants import DefaultValues, SnippetSettings
 
 
 class DocumentChunk(BaseModel):
@@ -66,3 +66,69 @@ class EmbeddingResult(BaseModel):
     embedding: list[float]
     model_name: str
     generation_time: float
+
+
+# Request/Response Models
+class DocumentUploadResponse(BaseModel):
+    """Response model for document upload."""
+
+    success: bool
+    document_id: str
+    filename: str
+    message: str
+    chunks_created: int
+    processing_time: float
+    file_size: int
+    page_count: int
+
+
+class QueryRequest(BaseModel):
+    """Request model for document querying."""
+
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=SnippetSettings.MAX_LENGTH,
+        description="The question to ask about uploaded documents",
+    )
+    limit: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Maximum number of relevant chunks to retrieve",
+    )
+    document_id: str | None = Field(
+        default=None, description="Optional: limit search to specific document"
+    )
+    include_context: bool = Field(
+        default=True, description="Whether to include source context in response"
+    )
+
+
+class QueryResponse(BaseModel):
+    """Response model for document querying."""
+
+    success: bool
+    query: str
+    answer: str
+    sources: list[dict[str, Any]]
+    response_time: float
+    model_used: str
+    chunks_used: int
+
+
+class DocumentListResponse(BaseModel):
+    """Response model for listing documents."""
+
+    documents: list[dict[str, Any]]
+    total_count: int
+    total_chunks: int
+
+
+class HealthResponse(BaseModel):
+    """Response model for health check."""
+
+    status: str
+    timestamp: str
+    services: dict[str, dict[str, Any]]
+    version: str

@@ -4,7 +4,6 @@ PDF document parsing functionality.
 
 import logging
 import re
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,6 +11,7 @@ import fitz  # PyMuPDF
 
 from .config import settings
 from .models import Document, ProcessingResult
+from .utils.timing import time_function
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,7 @@ class PDFParser:
             self._handle_page_error(page_num, e, metadata)
             return None
 
+    @time_function
     def extract_text_from_pdf(self, file_path: Path) -> tuple[str, int, dict]:
         """
         Extract text content from PDF file with optimized concatenation.
@@ -115,7 +116,6 @@ class PDFParser:
         """
         try:
             logger.info(f"Starting PDF text extraction for: {file_path}")
-            start_time = time.time()
 
             # Use list for O(n) concatenation instead of O(n²) string concatenation
             text_parts = []
@@ -149,8 +149,7 @@ class PDFParser:
             # Single join operation - much more efficient than repeated concatenation
             extracted_text = "".join(text_parts)
 
-            extraction_time = time.time() - start_time
-            metadata["extraction_time_seconds"] = extraction_time
+            metadata["extraction_time_seconds"] = 0.0  # Will be provided by decorator
             metadata["total_characters"] = len(extracted_text)
 
             if not extracted_text.strip():
@@ -159,7 +158,7 @@ class PDFParser:
             char_count = len(extracted_text)
             logger.info(
                 f"Successfully extracted {char_count} characters from "
-                f"{page_count} pages in {extraction_time:.2f}s"
+                f"{page_count} pages"
             )
 
             return extracted_text.strip(), page_count, metadata
@@ -187,6 +186,7 @@ class PDFParser:
 
         return text.strip()
 
+    @time_function
     def process_pdf(self, file_path: Path, original_filename: str) -> ProcessingResult:
         """
         Process a PDF file and create Document object.
@@ -198,8 +198,6 @@ class PDFParser:
         Returns:
             ProcessingResult with document and processing information
         """
-        start_time = time.time()
-
         try:
             # Validate PDF
             is_valid, error_msg = self.validate_pdf(file_path)
@@ -207,7 +205,7 @@ class PDFParser:
                 return ProcessingResult(
                     success=False,
                     error_message=error_msg,
-                    processing_time=time.time() - start_time,
+                    processing_time=0.0,  # Will be provided by decorator
                 )
 
             # Extract text with optimized processing
@@ -223,25 +221,17 @@ class PDFParser:
                 page_count=page_count,
                 total_chunks=0,  # Will be updated after chunking
                 uploaded_at=datetime.now(UTC),
-                processing_time=0.0,  # Will be updated at the end
+                processing_time=0.0,  # Will be provided by decorator
                 metadata=extraction_metadata,
             )
 
-            processing_time = time.time() - start_time
-
-            # Update the document with actual processing time
-            document.processing_time = processing_time
-
-            logger.info(
-                f"Successfully processed PDF: {original_filename} "
-                f"in {processing_time:.2f}s"
-            )
+            logger.info(f"Successfully processed PDF: {original_filename}")
 
             return ProcessingResult(
                 success=True,
                 document=document,
                 content=content,
-                processing_time=processing_time,
+                processing_time=0.0,  # Will be provided by decorator
             )
 
         except PDFParseError as e:
@@ -249,7 +239,7 @@ class PDFParser:
             return ProcessingResult(
                 success=False,
                 error_message=str(e),
-                processing_time=time.time() - start_time,
+                processing_time=0.0,  # Will be provided by decorator
             )
         except Exception as e:
             logger.error(
@@ -258,5 +248,5 @@ class PDFParser:
             return ProcessingResult(
                 success=False,
                 error_message=f"Unexpected error: {str(e)}",
-                processing_time=time.time() - start_time,
+                processing_time=0.0,  # Will be provided by decorator
             )
