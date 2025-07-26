@@ -53,6 +53,17 @@ class DocumentSettings(BaseModel):
     allowed_extensions: tuple[str, ...] = (".pdf",)
 
 
+class CelerySettings(BaseModel):
+    """Celery configuration."""
+
+    broker_url: str = os.getenv(
+        EnvironmentKeys.CELERY_BROKER_URL, DefaultValues.CELERY_BROKER_URL
+    )
+    result_backend: str = os.getenv(
+        EnvironmentKeys.CELERY_RESULT_BACKEND, DefaultValues.CELERY_RESULT_BACKEND
+    )
+
+
 class Settings:
     """Main application settings."""
 
@@ -86,6 +97,7 @@ class Settings:
                 )
             ),
         )
+        self.celery = CelerySettings()
 
 
 # Global settings instance

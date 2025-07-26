@@ -15,6 +15,10 @@ class DefaultValues:
     QDRANT_URL: Final[str] = "http://localhost:6333"
     OLLAMA_URL: Final[str] = "http://localhost:11434"
 
+    # Celery
+    CELERY_BROKER_URL: Final[str] = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: Final[str] = "redis://localhost:6379/0"
+
     # Document processing
     CHUNK_SIZE: Final[int] = 500
     CHUNK_OVERLAP: Final[int] = 100
@@ -257,3 +261,7 @@ class EnvironmentKeys:
     # System
     DEBUG: Final[str] = "DEBUG"
     RELOAD: Final[str] = "RELOAD"
+
+    # Celery
+    CELERY_BROKER_URL: Final[str] = "CELERY_BROKER_URL"
+    CELERY_RESULT_BACKEND: Final[str] = "CELERY_RESULT_BACKEND"

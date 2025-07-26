@@ -3,12 +3,34 @@ Data models for the RAG PDF Chat application.
 """
 
 from datetime import datetime
+from enum import Enum
 from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
 from .constants import DefaultValues, SnippetSettings
+
+
+class JobStatus(str, Enum):
+    """Status of background processing jobs."""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class ProcessingStage(str, Enum):
+    """Stages of document processing."""
+
+    UPLOAD = "upload"
+    PARSING = "parsing"
+    CHUNKING = "chunking"
+    EMBEDDING = "embedding"
+    STORING = "storing"
+    COMPLETED = "completed"
 
 
 class DocumentChunk(BaseModel):
@@ -68,18 +90,36 @@ class EmbeddingResult(BaseModel):
     generation_time: float
 
 
+class JobInfo(BaseModel):
+    """Information about a background processing job."""
+
+    job_id: str
+    status: JobStatus
+    stage: ProcessingStage
+    progress: int = Field(ge=0, le=100, default=0)
+    message: str = ""
+    error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    document_id: str | None = None
+    filename: str | None = None
+
+
 # Request/Response Models
 class DocumentUploadResponse(BaseModel):
     """Response model for document upload."""
 
     success: bool
-    document_id: str
-    filename: str
+    job_id: str
     message: str
-    chunks_created: int
-    processing_time: float
-    file_size: int
-    page_count: int
+    status: JobStatus
+
+
+class JobStatusResponse(BaseModel):
+    """Response model for job status check."""
+
+    success: bool
+    job_info: JobInfo
 
 
 class QueryRequest(BaseModel):
