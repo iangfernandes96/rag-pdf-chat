@@ -5,7 +5,6 @@ Redis-based job tracking service for background processing jobs.
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Optional
 
 import redis.asyncio as redis
 
@@ -23,9 +22,9 @@ class JobTrackerError(Exception):
 class JobTracker:
     """Redis-based job tracking service."""
 
-    def __init__(self, redis_url: str = "redis://localhost:6379/0"):
+    def __init__(self, redis_url: str = "redis://redis:6379/0"):
         self.redis_url = redis_url
-        self.redis_client: Optional[redis.Redis] = None
+        self.redis_client: redis.Redis | None = None
         self.job_key_prefix = "job:"
         self.job_ttl = 3600 * 24 * 7  # 7 days
 
@@ -47,12 +46,12 @@ class JobTracker:
     ) -> JobInfo:
         """
         Create a new job record.
-        
+
         Args:
             job_id: Unique job identifier
             filename: Original filename
             file_size: File size in bytes
-            
+
         Returns:
             Created job info
         """
@@ -81,12 +80,12 @@ class JobTracker:
         stage: ProcessingStage,
         progress: int,
         message: str,
-        error: Optional[str] = None,
-        document_id: Optional[str] = None,
+        error: str | None = None,
+        document_id: str | None = None,
     ) -> bool:
         """
         Update job status and progress.
-        
+
         Args:
             job_id: Job identifier
             status: New job status
@@ -95,7 +94,7 @@ class JobTracker:
             message: Status message
             error: Error message if failed
             document_id: Document ID if completed
-            
+
         Returns:
             Success status
         """
@@ -116,31 +115,31 @@ class JobTracker:
             job_info.message = message
             job_info.error = error
             job_info.updated_at = datetime.now(UTC)
-            
+
             if document_id:
                 job_info.document_id = document_id
 
             # Store updated job info
             await self._store_job(job_info)
-            
+
             logger.info(
                 f"Updated job {job_id}: {status.value} - {stage.value} "
                 f"({progress}%) - {message}"
             )
-            
+
             return True
 
         except Exception as e:
             logger.error(f"Failed to update job {job_id}: {str(e)}")
             return False
 
-    async def get_job(self, job_id: str) -> Optional[JobInfo]:
+    async def get_job(self, job_id: str) -> JobInfo | None:
         """
         Get job information by ID.
-        
+
         Args:
             job_id: Job identifier
-            
+
         Returns:
             Job information or None if not found
         """
@@ -150,7 +149,7 @@ class JobTracker:
         try:
             key = f"{self.job_key_prefix}{job_id}"
             data = await self.redis_client.get(key)
-            
+
             if not data:
                 return None
 
@@ -162,17 +161,15 @@ class JobTracker:
             return None
 
     async def list_jobs(
-        self, 
-        status: Optional[JobStatus] = None, 
-        limit: int = 100
+        self, status: JobStatus | None = None, limit: int = 100
     ) -> list[JobInfo]:
         """
         List jobs with optional filtering.
-        
+
         Args:
             status: Filter by job status
             limit: Maximum number of jobs to return
-            
+
         Returns:
             List of job information
         """
@@ -182,14 +179,14 @@ class JobTracker:
         try:
             pattern = f"{self.job_key_prefix}*"
             keys = await self.redis_client.keys(pattern)
-            
+
             jobs = []
             for key in keys[:limit]:
                 data = await self.redis_client.get(key)
                 if data:
                     job_dict = json.loads(data)
                     job_info = JobInfo(**job_dict)
-                    
+
                     if status is None or job_info.status == status:
                         jobs.append(job_info)
 
@@ -204,10 +201,10 @@ class JobTracker:
     async def delete_job(self, job_id: str) -> bool:
         """
         Delete a job record.
-        
+
         Args:
             job_id: Job identifier
-            
+
         Returns:
             Success status
         """
@@ -227,10 +224,10 @@ class JobTracker:
     async def cleanup_old_jobs(self, days_old: int = 7) -> int:
         """
         Clean up old completed/failed jobs.
-        
+
         Args:
             days_old: Age threshold in days
-            
+
         Returns:
             Number of jobs cleaned up
         """
@@ -245,18 +242,20 @@ class JobTracker:
 
             pattern = f"{self.job_key_prefix}*"
             keys = await self.redis_client.keys(pattern)
-            
+
             cleaned_count = 0
             for key in keys:
                 data = await self.redis_client.get(key)
                 if data:
                     job_dict = json.loads(data)
                     job_info = JobInfo(**job_dict)
-                    
+
                     # Delete old completed or failed jobs
                     old_statuses = [JobStatus.COMPLETED, JobStatus.FAILED]
-                    if (job_info.status in old_statuses 
-                        and job_info.created_at < cutoff_time):
+                    if (
+                        job_info.status in old_statuses
+                        and job_info.created_at < cutoff_time
+                    ):
                         await self.redis_client.delete(key)
                         cleaned_count += 1
 
@@ -271,7 +270,7 @@ class JobTracker:
         """Store job information in Redis."""
         if not self.redis_client:
             raise JobTrackerError("Job tracker not initialized")
-            
+
         key = f"{self.job_key_prefix}{job_info.job_id}"
         data = json.dumps(job_info.model_dump(), default=str)
         await self.redis_client.setex(key, self.job_ttl, data)
@@ -280,4 +279,4 @@ class JobTracker:
         """Cleanup Redis connection."""
         if self.redis_client:
             await self.redis_client.close()
-            logger.info("Job tracker Redis connection closed") 
+            logger.info("Job tracker Redis connection closed")

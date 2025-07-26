@@ -574,7 +574,7 @@ class RAGService:
         Get status of all system components with performance metrics.
 
         Returns:
-            Dictionary with system status information
+            Dictionary with unified health check format
         """
         try:
             # Get embedding model info
@@ -586,26 +586,34 @@ class RAGService:
             # Check health
             vector_healthy = await self.vector_store.health_check()
 
+            # Determine overall health
+            embedding_loaded = embedding_info.get("loaded", False)
+            overall_healthy = embedding_loaded and vector_healthy
+
             return {
-                "embedding_service": embedding_info,
-                "vector_store": {
-                    **vector_info,
-                    "healthy": vector_healthy,
-                    "url": self.vector_store.url,
-                },
-                "cache_status": {
-                    "query_cache_size": len(self._query_cache),
-                    "cache_ttl_hours": self._cache_ttl.total_seconds() / 3600,
-                    "max_cache_size": self._max_cache_size,
-                },
-                "system_healthy": (
-                    embedding_info.get("loaded", False) and vector_healthy
+                "healthy": overall_healthy,
+                "status": "healthy" if overall_healthy else "degraded",
+                "error": (
+                    None if overall_healthy else "One or more components unhealthy"
                 ),
+                "details": {
+                    "embedding_service": embedding_info,
+                    "vector_store": {
+                        **vector_info,
+                        "healthy": vector_healthy,
+                        "url": self.vector_store.url,
+                    },
+                    "cache_status": {
+                        "query_cache_size": len(self._query_cache),
+                        "cache_ttl_hours": self._cache_ttl.total_seconds() / 3600,
+                        "max_cache_size": self._max_cache_size,
+                    },
+                },
             }
 
         except Exception as e:
             logger.error(f"Failed to get system status: {str(e)}")
-            return {"error": str(e), "system_healthy": False}
+            return {"healthy": False, "status": "error", "error": str(e), "details": {}}
 
     async def clear_cache(self) -> dict[str, Any]:
         """

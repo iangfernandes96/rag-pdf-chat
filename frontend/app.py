@@ -90,10 +90,19 @@ class RAGChatClient:
             return {"status": "error", "error": str(e)}
 
     def upload_document(self, file: UploadedFile) -> dict[str, Any]:
-        """Upload a PDF document for processing."""
+        """Upload a PDF document for background processing."""
         try:
             files = {"file": (file.name, file.read(), "application/pdf")}
             response = self.client.post(f"{self.backend_url}/upload", files=files)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_job_status(self, job_id: str) -> dict[str, Any]:
+        """Get the status of a background processing job."""
+        try:
+            response = self.client.get(f"{self.backend_url}/jobs/{job_id}")
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -218,13 +227,43 @@ def sidebar_document_management():
                 result = st.session_state.client.upload_document(uploaded_file)
 
             if result.get("success", False):
+                job_id = result.get("job_id")
                 st.sidebar.success("✅ Document uploaded successfully!")
                 st.sidebar.info(
-                    f"Created {result['chunks_created']} chunks in {result['processing_time']:.1f}s"
+                    f"Processing started in background (Job ID: {job_id[:8]}...)"
                 )
-                # Refresh document list
-                load_documents()
-                st.rerun()
+
+                # Show job status
+                if job_id:
+                    with st.sidebar.expander("📊 Processing Status"):
+                        job_status = st.session_state.client.get_job_status(job_id)
+                        if job_status.get("success", False):
+                            job_info = job_status.get("job_info", {})
+                            status = job_info.get("status", "unknown")
+                            stage = job_info.get("stage", "unknown")
+                            progress = job_info.get("progress", 0)
+                            message = job_info.get("message", "")
+
+                            st.write(f"**Status:** {status}")
+                            st.write(f"**Stage:** {stage}")
+                            st.write(f"**Progress:** {progress}%")
+                            st.write(f"**Message:** {message}")
+
+                            if status == "completed":
+                                st.success("✅ Processing completed!")
+                                load_documents()
+                                st.rerun()
+                            elif status == "failed":
+                                st.error(
+                                    f"❌ Processing failed: {job_info.get('error', 'Unknown error')}"
+                                )
+                            else:
+                                st.info("⏳ Processing in progress...")
+                                st.info("Refresh the page to check status again")
+                        else:
+                            st.error(
+                                f"Failed to get job status: {job_status.get('error', 'Unknown error')}"
+                            )
             else:
                 st.sidebar.error(
                     f"❌ Upload failed: {result.get('error', 'Unknown error')}"

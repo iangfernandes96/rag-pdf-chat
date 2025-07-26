@@ -370,11 +370,16 @@ class DatabaseService:
         Get database service status.
 
         Returns:
-            Status information dictionary
+            Status information dictionary with unified health check format
         """
         try:
             if not self.pool:
-                return {"healthy": False, "error": "Database pool not initialized"}
+                return {
+                    "healthy": False,
+                    "status": "not_initialized",
+                    "error": "Database pool not initialized",
+                    "details": {},
+                }
 
             # Test connection
             async with self.pool.acquire() as conn:
@@ -385,19 +390,24 @@ class DatabaseService:
 
             return {
                 "healthy": True,
-                "connection_url": self.connection_url.split("@")[
-                    -1
-                ],  # Hide credentials
-                "server_version": server_version,
-                "pool_size": len(self.pool._holders),
-                "pool_max_size": self.pool._maxsize,
+                "status": "healthy",
+                "error": None,
+                "details": {
+                    "connection_url": self.connection_url.split("@")[-1],
+                    "server_version": server_version,
+                    "pool_size": len(self.pool._holders),
+                    "pool_max_size": self.pool._maxsize,
+                },
             }
 
         except Exception as e:
             return {
                 "healthy": False,
+                "status": "error",
                 "error": str(e),
-                "connection_url": self.connection_url.split("@")[-1],
+                "details": {
+                    "connection_url": self.connection_url.split("@")[-1],
+                },
             }
 
     async def cleanup(self) -> None:

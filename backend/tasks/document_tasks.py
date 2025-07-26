@@ -187,7 +187,7 @@ def process_document(
                 "job_id": job_id,
                 "document_id": document.id,
                 "chunks_count": len(chunks),
-                "processing_time": result.get("processing_time", 0.0)
+                "processing_time": result.get("processing_time", 0.0),
             }
 
         finally:
@@ -218,8 +218,4 @@ def process_document(
             finally:
                 loop.close()
 
-        return {
-            "success": False,
-            "error": str(e),
-            "job_id": job_id
-        }
+        return {"success": False, "error": str(e), "job_id": job_id}

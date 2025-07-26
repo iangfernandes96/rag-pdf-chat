@@ -533,15 +533,18 @@ class LLMService:
         Get LLM service status and model information.
 
         Returns:
-            Status information dictionary
+            Status information dictionary with unified health check format
         """
         try:
             if not self.client:
                 return {
                     "healthy": False,
+                    "status": "not_initialized",
                     "error": "Client not initialized",
-                    "model": self.model_name,
-                    "url": self.ollama_url,
+                    "details": {
+                        "model": self.model_name,
+                        "url": self.ollama_url,
+                    },
                 }
 
             # Use cached model list for status
@@ -549,25 +552,32 @@ class LLMService:
 
             return {
                 "healthy": True,
-                "model": self.model_name,
-                "model_loaded": self.model_loaded,
-                "available_models": available_models,
-                "url": self.ollama_url,
-                "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
-                "timeout": self.timeout,
-                "cache_status": {
-                    "cached_entries": len(self._model_cache),
-                    "cache_ttl_minutes": self._cache_ttl.total_seconds() / 60,
+                "status": "healthy",
+                "error": None,
+                "details": {
+                    "model": self.model_name,
+                    "model_loaded": self.model_loaded,
+                    "available_models": available_models,
+                    "url": self.ollama_url,
+                    "temperature": self.temperature,
+                    "max_tokens": self.max_tokens,
+                    "timeout": self.timeout,
+                    "cache_status": {
+                        "cached_entries": len(self._model_cache),
+                        "cache_ttl_minutes": self._cache_ttl.total_seconds() / 60,
+                    },
                 },
             }
 
         except Exception as e:
             return {
                 "healthy": False,
+                "status": "error",
                 "error": str(e),
-                "model": self.model_name,
-                "url": self.ollama_url,
+                "details": {
+                    "model": self.model_name,
+                    "url": self.ollama_url,
+                },
             }
 
     async def cleanup(self) -> None:

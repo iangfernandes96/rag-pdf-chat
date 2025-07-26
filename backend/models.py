@@ -122,6 +122,15 @@ class JobStatusResponse(BaseModel):
     job_info: JobInfo
 
 
+class ServiceHealthStatus(BaseModel):
+    """Unified service health status model."""
+
+    healthy: bool
+    status: str = "unknown"
+    error: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
 class QueryRequest(BaseModel):
     """Request model for document querying."""
 

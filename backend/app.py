@@ -6,6 +6,7 @@ import logging
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,7 @@ from fastapi.responses import JSONResponse
 from .config import settings
 from .constants import HttpStatus
 from .database import DatabaseService
+from .job_tracker import JobTracker
 from .llm_service import LLMService
 from .models import (
     DocumentListResponse,
@@ -24,10 +26,8 @@ from .models import (
     QueryRequest,
     QueryResponse,
 )
-from typing import Any, Optional
 from .rag_service import RAGService
 from .tasks.document_tasks import process_document
-from .job_tracker import JobTracker
 
 # Configure logging
 logging.basicConfig(
@@ -69,7 +69,7 @@ async def app_lifespan(app: FastAPI):
 
         # Initialize job tracker
         logger.info("📋 Initializing job tracker...")
-        job_tracker = JobTracker()
+        job_tracker = JobTracker(redis_url=settings.celery.broker_url)
         await job_tracker.initialize()
         app.state.job_tracker = job_tracker
 
@@ -149,12 +149,12 @@ async def health_check():
             "database": db_status,
         }
 
-        # Determine overall health
+        # Determine overall health using unified format
         overall_healthy = all(
             [
-                rag_status.get("system_healthy", False),
-                llm_status.get("system_healthy", False),
-                db_status.get("system_healthy", False),
+                rag_status.get("healthy", False),
+                llm_status.get("healthy", False),
+                db_status.get("healthy", False),
             ]
         )
 
@@ -378,7 +378,7 @@ async def get_job_status(job_id: str):
     try:
         # Get job status from Redis
         job_info = await app.state.job_tracker.get_job(job_id)
-        
+
         if not job_info:
             raise HTTPException(
                 status_code=HttpStatus.NOT_FOUND,
@@ -398,7 +398,7 @@ async def get_job_status(job_id: str):
 
 
 @app.get("/jobs", response_model=dict[str, Any])
-async def list_jobs(status: Optional[JobStatus] = None, limit: int = 50):
+async def list_jobs(status: JobStatus | None = None, limit: int = 50):
     """
     List all background processing jobs.
 
