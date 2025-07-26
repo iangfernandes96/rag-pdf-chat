@@ -5,6 +5,7 @@ FastAPI backend for RAG PDF Chat system.
 import logging
 import tempfile
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -31,13 +32,64 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
+
+# Lifespan context manager for application startup/shutdown
+@asynccontextmanager
+async def app_lifespan(app: FastAPI):
+    """Manage application lifecycle and service initialization."""
+    logger.info("🚀 Starting RAG PDF Chat API...")
+
+    try:
+        # Initialize database service
+        logger.info("📊 Initializing database service...")
+        db_service = DatabaseService()
+        await db_service.initialize()
+        app.state.db_service = db_service
+
+        # Initialize RAG service
+        logger.info("🧠 Initializing RAG service...")
+        rag_service = RAGService()
+        await rag_service.initialize()
+        app.state.rag_service = rag_service
+
+        # Initialize LLM service
+        logger.info("🤖 Initializing LLM service...")
+        llm_service = LLMService()
+        await llm_service.initialize()
+        app.state.llm_service = llm_service
+
+        logger.info("✅ All services initialized successfully")
+
+        yield  # Application runs here
+
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize services: {str(e)}")
+        raise RuntimeError(f"Service initialization failed: {str(e)}") from e
+
+    finally:
+        # Cleanup services on shutdown
+        logger.info("🛑 Shutting down RAG PDF Chat API...")
+
+        if hasattr(app.state, "rag_service") and app.state.rag_service:
+            await app.state.rag_service.cleanup()
+
+        if hasattr(app.state, "llm_service") and app.state.llm_service:
+            await app.state.llm_service.cleanup()
+
+        if hasattr(app.state, "db_service") and app.state.db_service:
+            await app.state.db_service.cleanup()
+
+        logger.info("✅ Shutdown completed")
+
+
+# Initialize FastAPI app with lifespan
 app = FastAPI(
     title="RAG PDF Chat API",
     description="Retrieval-Augmented Generation API for PDF document querying",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=app_lifespan,
 )
 
 # CORS middleware for frontend integration
@@ -49,66 +101,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global services (initialized on startup)
-rag_service: RAGService | None = None
-llm_service: LLMService | None = None
-db_service: DatabaseService | None = None
-
-
-# Startup event
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on application startup."""
-    global rag_service, llm_service, db_service
-
-    logger.info("🚀 Starting RAG PDF Chat API...")
-
-    try:
-        # Initialize database service
-        logger.info("📊 Initializing database service...")
-        db_service = DatabaseService()
-        await db_service.initialize()
-
-        # Initialize RAG service
-        logger.info("🧠 Initializing RAG service...")
-        rag_service = RAGService()
-        await rag_service.initialize()
-
-        # Initialize LLM service
-        logger.info("🤖 Initializing LLM service...")
-        llm_service = LLMService()
-        await llm_service.initialize()
-
-        logger.info("✅ All services initialized successfully")
-
-    except Exception as e:
-        logger.error(f"❌ Failed to initialize services: {str(e)}")
-        raise RuntimeError(f"Service initialization failed: {str(e)}") from e
-
-
-# Shutdown event
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup services on application shutdown."""
-    global rag_service, llm_service, db_service
-
-    logger.info("🛑 Shutting down RAG PDF Chat API...")
-
-    if rag_service:
-        await rag_service.cleanup()
-
-    if llm_service:
-        await llm_service.cleanup()
-
-    if db_service:
-        await db_service.cleanup()
-
-    logger.info("✅ Shutdown completed")
-
 
 # API Endpoints
-
-
 @app.get("/", response_model=dict[str, str])
 async def root():
     """Root endpoint with API information."""
@@ -123,17 +117,11 @@ async def root():
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint for monitoring system status."""
-    if not rag_service or not llm_service or not db_service:
-        raise HTTPException(
-            status_code=HttpStatus.SERVICE_UNAVAILABLE,
-            detail="Services not initialized",
-        )
-
     try:
         # Get system status from all services
-        rag_status = await rag_service.get_system_status()
-        llm_status = await llm_service.get_status()
-        db_status = await db_service.get_status()
+        rag_status = await app.state.rag_service.get_system_status()
+        llm_status = await app.state.llm_service.get_status()
+        db_status = await app.state.db_service.get_status()
 
         services = {
             "rag_service": rag_status,
@@ -176,12 +164,6 @@ async def upload_document(file: UploadFile = File(...)):
     Returns:
         Document processing results with metadata
     """
-    if not rag_service or not db_service:
-        raise HTTPException(
-            status_code=HttpStatus.SERVICE_UNAVAILABLE,
-            detail="Services not initialized",
-        )
-
     # Validate file
     if not file.filename:
         raise HTTPException(
@@ -221,7 +203,7 @@ async def upload_document(file: UploadFile = File(...)):
         start_time = datetime.now(UTC)
         logger.info(f"Starting document processing at {start_time}")
 
-        result = await rag_service.process_document(temp_file, file.filename)
+        result = await app.state.rag_service.process_document(temp_file, file.filename)
 
         end_time = datetime.now(UTC)
         processing_time = (end_time - start_time).total_seconds()
@@ -237,7 +219,7 @@ async def upload_document(file: UploadFile = File(...)):
         chunks = result["chunks"]
 
         # Store document metadata in database
-        await db_service.store_document_metadata(document, chunks)
+        await app.state.db_service.store_document_metadata(document, chunks)
 
         logger.info(
             f"Successfully processed {file.filename}: {len(chunks)} chunks created"
@@ -279,19 +261,13 @@ async def query_documents(request: QueryRequest):
     Returns:
         AI-generated answer with source context
     """
-    if not rag_service or not llm_service:
-        raise HTTPException(
-            status_code=HttpStatus.SERVICE_UNAVAILABLE,
-            detail="Services not initialized",
-        )
-
     try:
         start_time = datetime.now(UTC)
 
         logger.info(f"Processing query: {request.query}")
 
         # Search for relevant document chunks
-        search_result = await rag_service.search_documents(
+        search_result = await app.state.rag_service.search_documents(
             query=request.query,
             limit=request.limit,
             document_filter=request.document_id,
@@ -317,7 +293,7 @@ async def query_documents(request: QueryRequest):
             )
 
         # Generate response using LLM
-        llm_response = await llm_service.generate_rag_response(
+        llm_response = await app.state.llm_service.generate_rag_response(
             query=request.query,
             context_chunks=chunks,
             include_sources=request.include_context,
@@ -381,13 +357,8 @@ async def list_documents():
     Returns:
         List of documents with processing statistics
     """
-    # Return empty list if database service not available
-    if not db_service or not hasattr(db_service, "pool") or not db_service.pool:
-        logger.warning("Database service not available, returning empty document list")
-        return DocumentListResponse(documents=[], total_count=0, total_chunks=0)
-
     try:
-        documents = await db_service.get_all_documents()
+        documents = await app.state.db_service.get_all_documents()
 
         total_chunks = sum(doc.get("chunk_count", 0) for doc in documents)
 
@@ -412,18 +383,13 @@ async def delete_document(document_id: str):
     Returns:
         Deletion confirmation
     """
-    if not rag_service or not db_service:
-        raise HTTPException(
-            status_code=HttpStatus.SERVICE_UNAVAILABLE,
-            detail="Services not initialized",
-        )
 
     try:
         # Delete from vector store
-        vector_deleted = await rag_service.delete_document(document_id)
+        vector_deleted = await app.state.rag_service.delete_document(document_id)
 
         # Delete from database
-        db_deleted = await db_service.delete_document(document_id)
+        db_deleted = await app.state.db_service.delete_document(document_id)
 
         if not vector_deleted or not db_deleted:
             raise HTTPException(
