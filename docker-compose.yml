@@ -46,8 +46,7 @@ services:
       - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_pdf_chat
       - QDRANT_URL=http://qdrant:6333
       - OLLAMA_URL=http://host.docker.internal:11434
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - ARQ_REDIS_URL=redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,15 +57,14 @@ services:
     entrypoint: [ "/app/entrypoint.sh" ]
     command: [ "python", "-m", "uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2" ]
 
-  # Celery Worker for Background Processing
+  # Arq Worker for Background Processing
   worker:
     build: .
     environment:
       - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_pdf_chat
       - QDRANT_URL=http://qdrant:6333
       - OLLAMA_URL=http://host.docker.internal:11434
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - ARQ_REDIS_URL=redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,7 +73,14 @@ services:
       redis:
         condition: service_healthy
     entrypoint: [ "/app/entrypoint.sh" ]
-    command: [ "python", "start_worker.py" ]
+    command: [ "/app/.venv/bin/python", "start_arq_worker.py" ]
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "/app/.venv/bin/python", "-c", "import redis; r = redis.Redis.from_url('redis://redis:6379/0'); r.ping()" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # Streamlit Frontend
   frontend:

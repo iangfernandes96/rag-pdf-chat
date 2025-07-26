@@ -53,14 +53,11 @@ class DocumentSettings(BaseModel):
     allowed_extensions: tuple[str, ...] = (".pdf",)
 
 
-class CelerySettings(BaseModel):
-    """Celery configuration."""
+class ArqSettings(BaseModel):
+    """Arq configuration."""
 
-    broker_url: str = os.getenv(
-        EnvironmentKeys.CELERY_BROKER_URL, DefaultValues.CELERY_BROKER_URL
-    )
-    result_backend: str = os.getenv(
-        EnvironmentKeys.CELERY_RESULT_BACKEND, DefaultValues.CELERY_RESULT_BACKEND
+    redis_url: str = os.getenv(
+        EnvironmentKeys.ARQ_REDIS_URL, DefaultValues.ARQ_REDIS_URL
     )
 
 
@@ -97,7 +94,7 @@ class Settings:
                 )
             ),
         )
-        self.celery = CelerySettings()
+        self.arq = ArqSettings()
 
 
 # Global settings instance

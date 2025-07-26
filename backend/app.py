@@ -27,7 +27,6 @@ from .models import (
     QueryResponse,
 )
 from .rag_service import RAGService
-from .tasks.document_tasks import process_document
 
 # Configure logging
 logging.basicConfig(
@@ -61,15 +60,17 @@ async def app_lifespan(app: FastAPI):
         await llm_service.initialize()
         app.state.llm_service = llm_service
 
-        # Initialize Celery app for job queuing
-        logger.info("🔄 Initializing Celery app...")
-        from .celery_app import celery_app
+        # Initialize Arq pool for job queuing
+        logger.info("🔄 Initializing Arq pool...")
+        from arq import create_pool
+        from arq.connections import RedisSettings
 
-        app.state.celery_app = celery_app
+        arq_pool = await create_pool(RedisSettings.from_dsn(settings.arq.redis_url))
+        app.state.arq_pool = arq_pool
 
         # Initialize job tracker
         logger.info("📋 Initializing job tracker...")
-        job_tracker = JobTracker(redis_url=settings.celery.broker_url)
+        job_tracker = JobTracker(redis_url=settings.arq.redis_url)
         await job_tracker.initialize()
         app.state.job_tracker = job_tracker
 
@@ -96,6 +97,9 @@ async def app_lifespan(app: FastAPI):
 
         if hasattr(app.state, "job_tracker") and app.state.job_tracker:
             await app.state.job_tracker.cleanup()
+
+        if hasattr(app.state, "arq_pool") and app.state.arq_pool:
+            await app.state.arq_pool.close()
 
         logger.info("✅ Shutdown completed")
 
@@ -222,8 +226,10 @@ async def upload_document(file: UploadFile = File(...)):
             f"Queuing document for processing: {file.filename} ({file_size} bytes)"
         )
 
-        # Queue document processing task
-        process_document.delay(content, file.filename, job_id)
+        # Queue document processing task using Arq
+        await app.state.arq_pool.enqueue_job(
+            "process_document", content, file.filename, job_id
+        )
 
         logger.info(f"Document processing queued with job ID: {job_id}")
 

@@ -14,7 +14,7 @@
 - **💬 Natural language chat** interface with message history
 - **🤖 Local LLM inference** via Ollama (no external APIs)
 - **📚 Source citations** with relevance scores and document references
-- **⚡ Background processing** with Celery workers for document uploads
+- **⚡ Background processing** with Arq workers for document uploads
 - **🛡️ Comprehensive error handling** with user-friendly messages
 - **📊 System monitoring** and health checks
 - **🎨 Polished UX** with response quality scoring and user guidance
@@ -33,7 +33,7 @@
 | Database         | PostgreSQL (AsyncPG)        | ✅ Phase 4 |
 | LLM              | Ollama + Mistral            | ✅ Phase 4 |
 | Backend          | FastAPI + Python            | ✅ Phase 4 |
-| Background Jobs  | Celery + Redis              | ✅ Latest |
+| Background Jobs  | Arq + Redis                 | ✅ Latest |
 | Frontend         | Streamlit                   | ✅ Phase 5 |
 | UX Polish        | Enhanced error handling     | ✅ Phase 6 |
 | Code Quality     | Black + Ruff               | ✅ Latest |
@@ -104,7 +104,7 @@ python start_worker.py
 
 ## 🔄 Background Processing Architecture
 
-The application now uses **Celery workers** for background document processing, providing:
+The application now uses **Arq workers** for background document processing, providing:
 
 ### **Benefits**
 - **Non-blocking uploads** - API responds immediately with job ID
@@ -114,7 +114,7 @@ The application now uses **Celery workers** for background document processing, 
 
 ### **Components**
 - **Redis** - Message broker for job queues and job status persistence
-- **Celery Workers** - Background task processors
+- **Arq Workers** - Background task processors
 - **Job Tracker** - Redis-based job status management
 - **Job Status API** - Real-time status tracking and job management
 - **Error Recovery** - Automatic retry with exponential backoff

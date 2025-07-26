@@ -164,6 +164,9 @@ def initialize_session_state():
     if "backend_healthy" not in st.session_state:
         st.session_state.backend_healthy = False
 
+    if "active_job_id" not in st.session_state:
+        st.session_state.active_job_id = None
+
 
 def check_backend_status():
     """Check and display backend status."""
@@ -228,6 +231,7 @@ def sidebar_document_management():
 
             if result.get("success", False):
                 job_id = result.get("job_id")
+                st.session_state.active_job_id = job_id
                 st.sidebar.success("✅ Document uploaded successfully!")
                 st.sidebar.info(
                     f"Processing started in background (Job ID: {job_id[:8]}...)"
@@ -235,7 +239,17 @@ def sidebar_document_management():
 
                 # Show job status
                 if job_id:
-                    with st.sidebar.expander("📊 Processing Status"):
+                    with st.sidebar.expander("📊 Processing Status", expanded=True):
+                        # Refresh button
+                        col1, col2 = st.columns([3, 1])
+                        with col2:
+                            if st.button(
+                                "🔄",
+                                key="refresh_job_status",
+                                help="Refresh job status",
+                            ):
+                                st.rerun()
+
                         job_status = st.session_state.client.get_job_status(job_id)
                         if job_status.get("success", False):
                             job_info = job_status.get("job_info", {})
@@ -251,15 +265,19 @@ def sidebar_document_management():
 
                             if status == "completed":
                                 st.success("✅ Processing completed!")
+                                st.session_state.active_job_id = None
                                 load_documents()
                                 st.rerun()
                             elif status == "failed":
                                 st.error(
                                     f"❌ Processing failed: {job_info.get('error', 'Unknown error')}"
                                 )
+                                st.session_state.active_job_id = None
                             else:
                                 st.info("⏳ Processing in progress...")
-                                st.info("Refresh the page to check status again")
+                                st.info(
+                                    "Click the refresh button above to check status"
+                                )
                         else:
                             st.error(
                                 f"Failed to get job status: {job_status.get('error', 'Unknown error')}"
@@ -267,6 +285,50 @@ def sidebar_document_management():
             else:
                 st.sidebar.error(
                     f"❌ Upload failed: {result.get('error', 'Unknown error')}"
+                )
+
+    # Show active job status if exists
+    if st.session_state.active_job_id:
+        with st.sidebar.expander("📊 Active Job Status", expanded=True):
+            # Refresh button
+            col1, col2 = st.columns([3, 1])
+            with col2:
+                if st.button("🔄", key="refresh_active_job", help="Refresh job status"):
+                    st.rerun()
+
+            job_status = st.session_state.client.get_job_status(
+                st.session_state.active_job_id
+            )
+            if job_status.get("success", False):
+                job_info = job_status.get("job_info", {})
+                status = job_info.get("status", "unknown")
+                stage = job_info.get("stage", "unknown")
+                progress = job_info.get("progress", 0)
+                message = job_info.get("message", "")
+                filename = job_info.get("filename", "Unknown")
+
+                st.write(f"**File:** {filename}")
+                st.write(f"**Status:** {status}")
+                st.write(f"**Stage:** {stage}")
+                st.write(f"**Progress:** {progress}%")
+                st.write(f"**Message:** {message}")
+
+                if status == "completed":
+                    st.success("✅ Processing completed!")
+                    st.session_state.active_job_id = None
+                    load_documents()
+                    st.rerun()
+                elif status == "failed":
+                    st.error(
+                        f"❌ Processing failed: {job_info.get('error', 'Unknown error')}"
+                    )
+                    st.session_state.active_job_id = None
+                else:
+                    st.info("⏳ Processing in progress...")
+                    st.info("Click the refresh button above to check status")
+            else:
+                st.error(
+                    f"Failed to get job status: {job_status.get('error', 'Unknown error')}"
                 )
 
     # Document list section
