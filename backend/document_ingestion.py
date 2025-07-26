@@ -8,7 +8,7 @@ from pathlib import Path
 from .document_parser import PDFParser
 from .models import Document, DocumentChunk, ProcessingResult
 from .text_chunker import TextChunker
-from .utils.timing import time_function, time_async_function
+from .utils.timing import time_function
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +67,8 @@ class DocumentIngestionService:
         self.text_chunker = TextChunker()
         self.validator = DocumentValidator()
 
-    @time_async_function
-    async def ingest_document(
+    @time_function
+    def ingest_document(
         self, file_path: Path, original_filename: str
     ) -> ProcessingResult:
         """
@@ -86,7 +86,7 @@ class DocumentIngestionService:
         try:
             # Process PDF directly from temporary file (no permanent storage)
             logger.info(f"Processing PDF directly: {file_path}")
-            pdf_result = await self.pdf_parser.process_pdf(file_path, original_filename)
+            pdf_result = self.pdf_parser.process_pdf(file_path, original_filename)
 
             if not pdf_result.success or not pdf_result.document:
                 return pdf_result
