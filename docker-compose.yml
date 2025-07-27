@@ -75,6 +75,8 @@ services:
     entrypoint: [ "/app/entrypoint.sh" ]
     command: [ "/app/.venv/bin/python", "start_arq_worker.py" ]
     restart: unless-stopped
+    deploy:
+      replicas: 3  # Increase this number to scale workers
     healthcheck:
       test: [ "CMD", "/app/.venv/bin/python", "-c", "import redis; r = redis.Redis.from_url('redis://redis:6379/0'); r.ping()" ]
       interval: 30s
