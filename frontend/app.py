@@ -90,10 +90,19 @@ class RAGChatClient:
             return {"status": "error", "error": str(e)}
 
     def upload_document(self, file: UploadedFile) -> dict[str, Any]:
-        """Upload a PDF document for processing."""
+        """Upload a PDF document for background processing."""
         try:
             files = {"file": (file.name, file.read(), "application/pdf")}
             response = self.client.post(f"{self.backend_url}/upload", files=files)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_job_status(self, job_id: str) -> dict[str, Any]:
+        """Get the status of a background processing job."""
+        try:
+            response = self.client.get(f"{self.backend_url}/jobs/{job_id}")
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -154,6 +163,9 @@ def initialize_session_state():
 
     if "backend_healthy" not in st.session_state:
         st.session_state.backend_healthy = False
+
+    if "active_job_id" not in st.session_state:
+        st.session_state.active_job_id = None
 
 
 def check_backend_status():
@@ -218,16 +230,105 @@ def sidebar_document_management():
                 result = st.session_state.client.upload_document(uploaded_file)
 
             if result.get("success", False):
+                job_id = result.get("job_id")
+                st.session_state.active_job_id = job_id
                 st.sidebar.success("✅ Document uploaded successfully!")
                 st.sidebar.info(
-                    f"Created {result['chunks_created']} chunks in {result['processing_time']:.1f}s"
+                    f"Processing started in background (Job ID: {job_id[:8]}...)"
                 )
-                # Refresh document list
-                load_documents()
-                st.rerun()
+
+                # Show job status
+                if job_id:
+                    with st.sidebar.expander("📊 Processing Status", expanded=True):
+                        # Refresh button
+                        col1, col2 = st.columns([3, 1])
+                        with col2:
+                            if st.button(
+                                "🔄",
+                                key="refresh_job_status",
+                                help="Refresh job status",
+                            ):
+                                st.rerun()
+
+                        job_status = st.session_state.client.get_job_status(job_id)
+                        if job_status.get("success", False):
+                            job_info = job_status.get("job_info", {})
+                            status = job_info.get("status", "unknown")
+                            stage = job_info.get("stage", "unknown")
+                            progress = job_info.get("progress", 0)
+                            message = job_info.get("message", "")
+
+                            st.write(f"**Status:** {status}")
+                            st.write(f"**Stage:** {stage}")
+                            st.write(f"**Progress:** {progress}%")
+                            st.write(f"**Message:** {message}")
+
+                            if status == "completed":
+                                st.success("✅ Processing completed!")
+                                st.session_state.active_job_id = None
+                                load_documents()
+                                st.rerun()
+                            elif status == "failed":
+                                st.error(
+                                    f"❌ Processing failed: {job_info.get('error', 'Unknown error')}"
+                                )
+                                st.session_state.active_job_id = None
+                            else:
+                                st.info("⏳ Processing in progress...")
+                                st.info(
+                                    "Click the refresh button above to check status"
+                                )
+                        else:
+                            st.error(
+                                f"Failed to get job status: {job_status.get('error', 'Unknown error')}"
+                            )
             else:
                 st.sidebar.error(
                     f"❌ Upload failed: {result.get('error', 'Unknown error')}"
+                )
+
+    # Show active job status if exists
+    if st.session_state.active_job_id:
+        with st.sidebar.expander("📊 Active Job Status", expanded=True):
+            # Refresh button
+            col1, col2 = st.columns([3, 1])
+            with col2:
+                if st.button("🔄", key="refresh_active_job", help="Refresh job status"):
+                    st.rerun()
+
+            job_status = st.session_state.client.get_job_status(
+                st.session_state.active_job_id
+            )
+            if job_status.get("success", False):
+                job_info = job_status.get("job_info", {})
+                status = job_info.get("status", "unknown")
+                stage = job_info.get("stage", "unknown")
+                progress = job_info.get("progress", 0)
+                message = job_info.get("message", "")
+                filename = job_info.get("filename", "Unknown")
+
+                st.write(f"**File:** {filename}")
+                st.write(f"**Status:** {status}")
+                st.write(f"**Stage:** {stage}")
+                st.write(f"**Progress:** {progress}%")
+                st.write(f"**Message:** {message}")
+
+                if status == "completed":
+                    st.success("✅ Processing completed!")
+                    st.session_state.active_job_id = None
+                    load_documents()
+                    st.rerun()
+                elif status == "failed":
+                    st.error(
+                        f"❌ Processing failed: {job_info.get('error', 'Unknown error')}"
+                    )
+                    st.session_state.active_job_id = None
+                else:
+                    st.info("⏳ Processing in progress...")
+                    st.info("Click the refresh button above to check status")
+            else:
+                st.error(
+                    f"Failed to get job status: {job_status.get('error', 'Unknown error')}"
                 )
 
     # Document list section
@@ -451,10 +552,11 @@ def display_system_status():
         with col1:
             st.subheader("🧠 RAG Service")
             rag_service = services.get("rag_service", {})
-            if rag_service.get("system_healthy", False):
+            if rag_service.get("healthy", False):
                 st.success("✅ Healthy")
 
-                embedding_service = rag_service.get("embedding_service", {})
+                details = rag_service.get("details", {})
+                embedding_service = details.get("embedding_service", {})
                 if embedding_service.get("loaded", False):
                     st.info(f"Model: {embedding_service.get('model_name', 'N/A')}")
                     st.info(
@@ -462,27 +564,35 @@ def display_system_status():
                     )
             else:
                 st.error("❌ Not healthy")
+                if rag_service.get("error"):
+                    st.error(f"Error: {rag_service.get('error')}")
 
         with col2:
             st.subheader("🤖 LLM Service")
             llm_service = services.get("llm_service", {})
             if llm_service.get("healthy", False):
                 st.success("✅ Healthy")
-                st.info(f"Model: {llm_service.get('model', 'N/A')}")
-                st.info(f"URL: {llm_service.get('url', 'N/A')}")
+                details = llm_service.get("details", {})
+                st.info(f"Model: {details.get('model', 'N/A')}")
+                st.info(f"URL: {details.get('url', 'N/A')}")
             else:
                 st.error("❌ Not available")
+                if llm_service.get("error"):
+                    st.error(f"Error: {llm_service.get('error')}")
 
         with col3:
             st.subheader("📊 Database")
             db_service = services.get("database", {})
             if db_service.get("healthy", False):
                 st.success("✅ Connected")
+                details = db_service.get("details", {})
                 st.info(
-                    f"Pool: {db_service.get('pool_size', 0)}/{db_service.get('pool_max_size', 0)}"
+                    f"Pool: {details.get('pool_size', 0)}/{details.get('pool_max_size', 0)}"
                 )
             else:
                 st.error("❌ Not connected")
+                if db_service.get("error"):
+                    st.error(f"Error: {db_service.get('error')}")
 
 
 def main():

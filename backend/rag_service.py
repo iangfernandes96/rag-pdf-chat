@@ -6,13 +6,14 @@ document processing, embedding, and similarity search.
 import asyncio
 import logging
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from .constants import DefaultValues, SnippetSettings
 from .document_ingestion import DocumentIngestionService
 from .embedding_service import EmbeddingService
+from .redis_cache import cache_service
 from .utils.timing import time_async_function
 from .vector_store import VectorStore
 
@@ -161,18 +162,15 @@ class RAGService:
     """Main service that orchestrates the RAG pipeline with optimizations."""
 
     def __init__(self):
-        self.ingestion_service = DocumentIngestionService()
+        """Initialize RAG service with optimized components."""
         self.embedding_service = EmbeddingService()
         self.vector_store = VectorStore()
+        self.document_ingestion = DocumentIngestionService()
         self.validator = RAGValidator()
         self.snippet_optimizer = SnippetOptimizer()
 
-        # Query caching for performance optimization
-        self._query_cache: dict[str, dict[str, Any]] = {}
-        self._cache_ttl = timedelta(
-            hours=DefaultValues.CACHE_TTL_HOURS
-        )  # Cache for 1 hour
-        self._max_cache_size = DefaultValues.CACHE_SIZE  # Limit cache size
+        # Initialize services
+        self._initialized = False
 
     async def initialize(self) -> bool:
         """
@@ -224,7 +222,7 @@ class RAGService:
             self.validator.validate_document_params(file_path, original_filename)
 
             # Step 1: Ingest document (PDF parsing and chunking)
-            ingestion_result = self.ingestion_service.ingest_document(
+            ingestion_result = self.document_ingestion.ingest_document(
                 file_path, original_filename
             )
 
@@ -292,12 +290,10 @@ class RAGService:
                 "document": document,
                 "chunks": chunks,
                 "embeddings_count": len(embeddings),
-                "processing_time": ingestion_result.processing_time,
-                "stats": self.ingestion_service.get_document_stats(document, chunks),
+                "stats": self.document_ingestion.get_document_stats(document, chunks),
             }
 
         except RAGError:
-            # Re-raise validation errors
             raise
         except Exception as e:
             logger.error(f"Document processing failed: {str(e)}")
@@ -311,62 +307,33 @@ class RAGService:
         self, query: str
     ) -> tuple[list[float], float]:
         """
-        Get query embedding with caching for performance optimization.
+        Get query embedding with Redis caching.
 
         Args:
-            query: Search query text
+            query: Query text
 
         Returns:
-            Tuple of (embedding_vector, generation_time)
+            Tuple of (embedding, generation_time)
         """
-        # Create cache key
-        cache_key = f"query:{hash(query.strip().lower())}"
-        now = datetime.now(UTC)
+        start_time = datetime.now(UTC)
 
-        # Check cache first
-        if cache_key in self._query_cache:
-            cached_entry = self._query_cache[cache_key]
-            if now - cached_entry["timestamp"] < self._cache_ttl:
-                logger.debug(f"Cache hit for query: {query[:50]}...")
-                return cached_entry["embedding"], cached_entry["embed_time"]
+        # Check Redis cache first
+        cached_embedding = await cache_service.get("query_embedding", query)
+        if cached_embedding:
+            embed_time = (datetime.now(UTC) - start_time).total_seconds()
+            logger.debug(f"Cache hit for query embedding: {query[:50]}...")
+            return cached_embedding, embed_time
 
-        # Generate embedding if not cached or expired
+        # Generate embedding (synchronous call)
         embedding, embed_time = self.embedding_service.generate_embedding(query)
 
-        # Cache the result (with size limit)
-        if len(self._query_cache) >= self._max_cache_size:
-            # Remove oldest entries
-            self._cleanup_cache()
+        # Cache in Redis
+        await cache_service.set("query_embedding", embedding, 1800, query)  # 30 min TTL
 
-        self._query_cache[cache_key] = {
-            "embedding": embedding,
-            "embed_time": embed_time,
-            "timestamp": now,
-        }
+        total_time = (datetime.now(UTC) - start_time).total_seconds()
+        logger.debug(f"Generated and cached embedding for: {query[:50]}...")
 
-        logger.debug(f"Cached query embedding: {query[:50]}...")
-        return embedding, embed_time
-
-    def _cleanup_cache(self) -> None:
-        """Clean up old cache entries to maintain cache size limit."""
-        if len(self._query_cache) < self._max_cache_size:
-            return
-
-        # Remove oldest 20% of entries
-        sorted_entries = sorted(
-            self._query_cache.items(), key=lambda x: x[1]["timestamp"]
-        )
-
-        # Use performance threshold for cleanup ratio
-        from .constants import PerformanceThresholds
-
-        entries_to_remove = int(
-            len(sorted_entries) * PerformanceThresholds.CACHE_CLEANUP_RATIO
-        )
-        for key, _ in sorted_entries[:entries_to_remove]:
-            del self._query_cache[key]
-
-        logger.debug(f"Cleaned up {entries_to_remove} cache entries")
+        return embedding, total_time
 
     async def search_documents(
         self,
@@ -423,13 +390,11 @@ class RAGService:
                     "document_filter": document_filter,
                 },
                 "cache_info": {
-                    "cached_queries": len(self._query_cache),
-                    "cache_hit": embed_time < 0.001,  # Very fast = cache hit
+                    "cache_hit": embed_time < 0.001,
                 },
             }
 
         except RAGError:
-            # Re-raise validation errors
             raise
         except Exception as e:
             logger.error(f"Document search failed: {str(e)}")
@@ -574,7 +539,7 @@ class RAGService:
         Get status of all system components with performance metrics.
 
         Returns:
-            Dictionary with system status information
+            Dictionary with unified health check format
         """
         try:
             # Get embedding model info
@@ -586,53 +551,40 @@ class RAGService:
             # Check health
             vector_healthy = await self.vector_store.health_check()
 
+            # Determine overall health
+            embedding_loaded = embedding_info.get("loaded", False)
+            overall_healthy = embedding_loaded and vector_healthy
+
             return {
-                "embedding_service": embedding_info,
-                "vector_store": {
-                    **vector_info,
-                    "healthy": vector_healthy,
-                    "url": self.vector_store.url,
-                },
-                "cache_status": {
-                    "query_cache_size": len(self._query_cache),
-                    "cache_ttl_hours": self._cache_ttl.total_seconds() / 3600,
-                    "max_cache_size": self._max_cache_size,
-                },
-                "system_healthy": (
-                    embedding_info.get("loaded", False) and vector_healthy
+                "healthy": overall_healthy,
+                "status": "healthy" if overall_healthy else "degraded",
+                "error": (
+                    None if overall_healthy else "One or more components unhealthy"
                 ),
+                "details": {
+                    "embedding_service": embedding_info,
+                    "vector_store": {
+                        **vector_info,
+                        "healthy": vector_healthy,
+                        "url": self.vector_store.url,
+                    },
+                    "cache_status": {
+                        "query_cache_size": 0,
+                        "cache_ttl_hours": 0,
+                        "max_cache_size": 0,
+                    },
+                },
             }
 
         except Exception as e:
             logger.error(f"Failed to get system status: {str(e)}")
-            return {"error": str(e), "system_healthy": False}
-
-    async def clear_cache(self) -> dict[str, Any]:
-        """
-        Clear query cache and return cache statistics.
-
-        Returns:
-            Dictionary with cache clearing results
-        """
-        cache_size_before = len(self._query_cache)
-        self._query_cache.clear()
-
-        logger.info(f"Cleared query cache ({cache_size_before} entries)")
-
-        return {
-            "success": True,
-            "entries_cleared": cache_size_before,
-            "cache_size_after": len(self._query_cache),
-        }
+            return {"healthy": False, "status": "error", "error": str(e), "details": {}}
 
     async def cleanup(self) -> None:
         """Clean up resources."""
         try:
             # Clean up embedding service
             self.embedding_service.cleanup()
-
-            # Clear cache
-            self._query_cache.clear()
 
             logger.info("RAG service cleaned up")
         except Exception as e:

@@ -5,7 +5,6 @@ Async vector store service using Qdrant for embedding storage and similarity sea
 import asyncio
 import hashlib
 import logging
-from datetime import UTC, datetime, timedelta
 from functools import wraps
 from typing import Any
 
@@ -23,6 +22,7 @@ from qdrant_client.http.models import (
 from .config import settings
 from .constants import DefaultValues, SystemMessages
 from .models import DocumentChunk
+from .redis_cache import cache_service
 from .utils.timing import time_async_function
 
 logger = logging.getLogger(__name__)
@@ -158,27 +158,29 @@ def retry_with_exponential_backoff(
                     delay *= 2  # Exponential backoff
 
             logger.error(f"All {max_retries + 1} attempts failed")
-            raise last_exception
+            if last_exception:
+                raise last_exception
 
         return wrapper
 
     return decorator
 
 
-# Removed custom performance_monitor decorator - using time_async_function instead
+class VectorStore:
+    """Async vector store service using Qdrant with Redis caching."""
 
+    def __init__(self, url: str | None = None, collection_name: str | None = None):
+        self.url = url or settings.vector.qdrant_url
+        self.collection_name = collection_name or settings.vector.collection_name
+        self.client: AsyncQdrantClient | None = None
+        self.validator = VectorStoreValidator()
+        # Use optimized batch size for better performance
+        from .constants import DefaultValues
 
-class SearchResultCache:
-    """LRU cache for search results with TTL."""
+        self.batch_size = DefaultValues.VECTOR_BATCH_SIZE
 
-    def __init__(
-        self,
-        max_size: int = DefaultValues.CACHE_SIZE,
-        ttl_hours: float = DefaultValues.CACHE_TTL_HOURS,
-    ):
-        self.max_size = max_size
-        self.ttl = timedelta(hours=ttl_hours)
-        self._cache: dict[str, dict[str, Any]] = {}
+        # Performance monitoring
+        self._performance_metrics: dict[str, dict[str, Any]] = {}
 
     def _create_cache_key(
         self,
@@ -192,30 +194,26 @@ class SearchResultCache:
         query_str = f"{query_embedding}_{limit}_{score_threshold}_{document_filter}"
         return hashlib.md5(query_str.encode()).hexdigest()
 
-    def get(
+    async def _get_cached_search_results(
         self,
         query_embedding: list[float],
         limit: int,
         score_threshold: float,
         document_filter: str | None = None,
     ) -> list[dict[str, Any]] | None:
-        """Get cached search results if available and not expired."""
+        """Get cached search results from Redis."""
         cache_key = self._create_cache_key(
             query_embedding, limit, score_threshold, document_filter
         )
 
-        if cache_key in self._cache:
-            cached_entry = self._cache[cache_key]
-            if datetime.now(UTC) - cached_entry["timestamp"] < self.ttl:
-                logger.debug(SystemMessages.CACHE_HIT)
-                return cached_entry["results"]
-            else:
-                # Remove expired entry
-                del self._cache[cache_key]
+        cached_results = await cache_service.get("vector_search", cache_key)
+        if cached_results:
+            logger.debug(f"Cache hit for vector search: {cache_key[:16]}...")
+            return cached_results
 
         return None
 
-    def set(
+    async def _cache_search_results(
         self,
         query_embedding: list[float],
         limit: int,
@@ -223,66 +221,15 @@ class SearchResultCache:
         document_filter: str | None,
         results: list[dict[str, Any]],
     ) -> None:
-        """Cache search results with TTL."""
+        """Cache search results in Redis."""
         cache_key = self._create_cache_key(
             query_embedding, limit, score_threshold, document_filter
         )
 
-        # Implement simple LRU by removing oldest entries when at capacity
-        if len(self._cache) >= self.max_size:
-            self._cleanup_cache()
-
-        self._cache[cache_key] = {
-            "results": results,
-            "timestamp": datetime.now(UTC),
-        }
-
-        logger.debug("Cached search results for query")
-
-    def _cleanup_cache(self) -> None:
-        """Remove oldest entries based on cleanup ratio."""
-        if len(self._cache) < self.max_size:
-            return
-
-        # Sort by timestamp and remove oldest entries
-        sorted_entries = sorted(self._cache.items(), key=lambda x: x[1]["timestamp"])
-
-        # Use performance threshold for cleanup ratio
-        from .constants import PerformanceThresholds
-
-        entries_to_remove = int(
-            len(sorted_entries) * PerformanceThresholds.CACHE_CLEANUP_RATIO
-        )
-        for key, _ in sorted_entries[:entries_to_remove]:
-            del self._cache[key]
-
-        logger.debug(f"Cleaned up {entries_to_remove} cache entries")
-
-    def clear(self) -> int:
-        """Clear all cached entries and return count of cleared entries."""
-        count = len(self._cache)
-        self._cache.clear()
-        return count
-
-
-class VectorStore:
-    """Async vector store service using Qdrant with optimizations."""
-
-    def __init__(self, url: str | None = None, collection_name: str | None = None):
-        self.url = url or settings.vector.qdrant_url
-        self.collection_name = collection_name or settings.vector.collection_name
-        self.vector_size = settings.vector.vector_size
-        self.client: AsyncQdrantClient | None = None
-        self.validator = VectorStoreValidator()
-        self.search_cache = SearchResultCache()
-
-        # Performance monitoring
-        self._performance_metrics: dict[str, dict[str, Any]] = {}
-
-        # Batch processing configuration
-        self.batch_size = getattr(
-            settings.vector, "batch_size", DefaultValues.BATCH_SIZE
-        )
+        # Cache for 1 hour (3600 seconds)
+        ttl_seconds = int(DefaultValues.CACHE_TTL_HOURS * 3600)
+        await cache_service.set("vector_search", results, ttl_seconds, cache_key)
+        logger.debug(f"Cached vector search results: {cache_key[:16]}...")
 
     @retry_with_exponential_backoff()
     @time_async_function
@@ -339,12 +286,12 @@ class VectorStore:
 
             # Create collection
             logger.info(f"Creating collection: {self.collection_name}")
-            logger.info(f"Vector size: {self.vector_size}")
+            logger.info(f"Vector size: {settings.vector.vector_size}")
 
             await self.client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(
-                    size=self.vector_size,
+                    size=settings.vector.vector_size,
                     distance=Distance.COSINE,
                 ),
             )
@@ -469,7 +416,6 @@ class VectorStore:
             return True
 
         except VectorStoreError:
-            # Re-raise validation errors
             raise
         except Exception as e:
             logger.error(f"Failed to store embeddings: {str(e)}")
@@ -524,7 +470,7 @@ class VectorStore:
         self.validator.validate_search_params(query_embedding, limit, score_threshold)
 
         # Check cache first
-        cached_results = self.search_cache.get(
+        cached_results = await self._get_cached_search_results(
             query_embedding, limit, score_threshold, document_filter
         )
         if cached_results is not None:
@@ -563,7 +509,7 @@ class VectorStore:
             ]
 
             # Cache results for future queries
-            self.search_cache.set(
+            await self._cache_search_results(
                 query_embedding, limit, score_threshold, document_filter, results
             )
 
@@ -571,7 +517,6 @@ class VectorStore:
             return results
 
         except VectorStoreError:
-            # Re-raise validation errors
             raise
         except Exception as e:
             logger.error(f"Failed to search similar chunks: {str(e)}")
@@ -656,7 +601,7 @@ class VectorStore:
             logger.info(f"Operation status: {operation_info.status}")
 
             # Clear cache since document data changed
-            cleared_entries = self.search_cache.clear()
+            cleared_entries = await cache_service.clear_prefix("vector_search")
             if cleared_entries > 0:
                 logger.debug(f"Cleared {cleared_entries} cache entries after deletion")
 
@@ -691,9 +636,9 @@ class VectorStore:
                 "vector_size": collection_info.config.params.vectors.size,
                 "distance": collection_info.config.params.vectors.distance,
                 "cache_stats": {
-                    "cached_searches": len(self.search_cache._cache),
-                    "cache_max_size": self.search_cache.max_size,
-                    "cache_ttl_hours": self.search_cache.ttl.total_seconds() / 3600,
+                    "cached_searches": "Redis managed",
+                    "cache_max_size": "Unlimited",
+                    "cache_ttl_hours": DefaultValues.CACHE_TTL_HOURS,
                 },
                 "performance_metrics": self._performance_metrics,
             }
@@ -729,14 +674,12 @@ class VectorStore:
         Returns:
             Dictionary with cache clearing results
         """
-        cleared_entries = self.search_cache.clear()
-
-        logger.info(f"Cleared search cache ({cleared_entries} entries)")
+        cleared_count = await cache_service.clear_prefix("vector_search")
 
         return {
             "success": True,
-            "entries_cleared": cleared_entries,
-            "cache_size_after": len(self.search_cache._cache),
+            "entries_cleared": cleared_count,
+            "cache_size_after": "Redis managed",
         }
 
     def get_performance_stats(self) -> dict[str, Any]:
@@ -749,9 +692,9 @@ class VectorStore:
         return {
             "operation_metrics": self._performance_metrics,
             "cache_stats": {
-                "current_size": len(self.search_cache._cache),
-                "max_size": self.search_cache.max_size,
-                "ttl_hours": self.search_cache.ttl.total_seconds() / 3600,
+                "current_size": "Redis managed",
+                "max_size": "Unlimited",
+                "ttl_hours": DefaultValues.CACHE_TTL_HOURS,
             },
             "batch_size": self.batch_size,
         }
@@ -761,8 +704,5 @@ class VectorStore:
         if self.client is not None:
             await self.client.close()
             self.client = None
-
-        # Clear cache
-        self.search_cache.clear()
 
         logger.info("Vector store connection closed and resources cleaned up")

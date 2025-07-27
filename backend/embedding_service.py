@@ -61,7 +61,7 @@ class EmbeddingService:
         self.model_name = model_name or settings.embedding.model_name
         self.batch_size = settings.embedding.batch_size
         self.model: SentenceTransformer | None = None
-        self._executor = ThreadPoolExecutor(max_workers=1)
+        self._executor = ThreadPoolExecutor(max_workers=8)
         self.validator = ConfigValidator()
 
     def _handle_encoding_error(
@@ -263,49 +263,61 @@ class EmbeddingService:
     @time_function
     def embed_chunks(self, chunks: list[DocumentChunk]) -> list[EmbeddingResult]:
         """
-        Generate embeddings with optimized memory usage and single-pass processing.
+        Generate embeddings for multiple chunks with optimized batch processing.
 
         Args:
             chunks: List of document chunks to embed
 
         Returns:
-            List of EmbeddingResult objects
+            List of embedding results
+
+        Raises:
+            EmbeddingError: If embedding generation fails
         """
         if not chunks:
-            logger.warning("No chunks provided for embedding")
             return []
 
-        logger.info(f"Embedding {len(chunks)} document chunks")
+        try:
+            # Load model if not already loaded
+            if self.model is None:
+                self.load_model()
 
-        # Single-pass chunk validation and text extraction
-        valid_chunks = [
-            (i, chunk) for i, chunk in enumerate(chunks) if chunk.content.strip()
-        ]
+            # Use optimized batch size for better performance
+            from .constants import DefaultValues
 
-        if not valid_chunks:
-            logger.warning("No valid chunks found")
-            return []
+            batch_size = DefaultValues.EMBEDDING_BATCH_SIZE
 
-        indices, valid_chunks_list = zip(*valid_chunks, strict=False)
-        texts = [chunk.content.strip() for chunk in valid_chunks_list]
+            results = []
+            total_chunks = len(chunks)
 
-        # Batch processing with memory efficiency
-        embeddings, total_time = self.generate_embeddings_batch(texts)
-        avg_time = total_time / len(embeddings) if embeddings else 0.0
+            for i in range(0, total_chunks, batch_size):
+                batch_chunks = chunks[i : i + batch_size]
+                batch_texts = [chunk.content for chunk in batch_chunks]
 
-        # Create results efficiently with proper zip validation
-        results = [
-            EmbeddingResult(
-                chunk_id=chunk.id,
-                embedding=embedding,
-                model_name=self.model_name,
-                generation_time=avg_time,
-            )
-            for chunk, embedding in zip(valid_chunks_list, embeddings, strict=True)
-        ]
+                # Generate embeddings for this batch
+                embeddings, batch_time = self.generate_embeddings_batch(batch_texts)
 
-        logger.info(f"Successfully embedded {len(results)} chunks")
-        return results
+                # Create results for this batch
+                for chunk, embedding in zip(batch_chunks, embeddings, strict=True):
+                    result = EmbeddingResult(
+                        chunk_id=chunk.id,
+                        embedding=embedding,
+                        model_name=self.model_name,
+                        generation_time=batch_time / len(batch_chunks),
+                    )
+                    results.append(result)
+
+                logger.debug(
+                    f"Processed batch {i//batch_size + 1}/{(total_chunks + batch_size - 1)//batch_size} "
+                    f"({len(batch_chunks)} chunks)"
+                )
+
+            logger.info(f"Generated embeddings for {len(chunks)} chunks")
+            return results
+
+        except Exception as e:
+            logger.error(f"Failed to generate embeddings: {str(e)}")
+            raise EmbeddingError(f"Embedding generation failed: {str(e)}") from e
 
     @time_async_function
     async def embed_chunks_async(

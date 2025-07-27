@@ -115,7 +115,6 @@ class DocumentIngestionService:
                 success=True,
                 document=pdf_result.document,
                 chunks=chunks,
-                processing_time=pdf_result.processing_time,
             )
 
         except Exception as e:

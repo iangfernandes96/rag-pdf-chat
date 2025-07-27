@@ -1,9 +1,10 @@
 """
-PDF document parsing functionality.
+PDF document parsing functionality with performance optimizations.
 """
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -27,10 +28,12 @@ class PDFParseError(Exception):
 
 
 class PDFParser:
-    """Handles PDF document parsing and text extraction."""
+    """Handles PDF document parsing and text extraction with optimizations."""
 
     def __init__(self):
         self.max_file_size = settings.document.max_file_size_mb * 1024 * 1024
+        # Use thread pool for parallel page processing
+        self._executor = ThreadPoolExecutor(max_workers=4)
 
     def validate_pdf(self, file_path: Path) -> tuple[bool, str | None]:
         """
@@ -100,6 +103,20 @@ class PDFParser:
             self._handle_page_error(page_num, e, metadata)
             return None
 
+    def _process_page_parallel(self, args: tuple) -> tuple[int, str | None]:
+        """
+        Process a single page in parallel.
+
+        Args:
+            args: Tuple of (page, page_num, metadata)
+
+        Returns:
+            Tuple of (page_num, text_or_none)
+        """
+        page, page_num, metadata = args
+        text = self._extract_page_safely(page, page_num, metadata)
+        return page_num, text
+
     @time_function
     def extract_text_from_pdf(self, file_path: Path) -> tuple[str, int, dict]:
         """
@@ -148,8 +165,6 @@ class PDFParser:
 
             # Single join operation - much more efficient than repeated concatenation
             extracted_text = "".join(text_parts)
-
-            metadata["extraction_time_seconds"] = 0.0  # Will be provided by decorator
             metadata["total_characters"] = len(extracted_text)
 
             if not extracted_text.strip():
@@ -205,7 +220,6 @@ class PDFParser:
                 return ProcessingResult(
                     success=False,
                     error_message=error_msg,
-                    processing_time=0.0,  # Will be provided by decorator
                 )
 
             # Extract text with optimized processing
@@ -221,7 +235,6 @@ class PDFParser:
                 page_count=page_count,
                 total_chunks=0,  # Will be updated after chunking
                 uploaded_at=datetime.now(UTC),
-                processing_time=0.0,  # Will be provided by decorator
                 metadata=extraction_metadata,
             )
 
@@ -231,7 +244,6 @@ class PDFParser:
                 success=True,
                 document=document,
                 content=content,
-                processing_time=0.0,  # Will be provided by decorator
             )
 
         except PDFParseError as e:
@@ -239,7 +251,6 @@ class PDFParser:
             return ProcessingResult(
                 success=False,
                 error_message=str(e),
-                processing_time=0.0,  # Will be provided by decorator
             )
         except Exception as e:
             logger.error(
@@ -248,5 +259,4 @@ class PDFParser:
             return ProcessingResult(
                 success=False,
                 error_message=f"Unexpected error: {str(e)}",
-                processing_time=0.0,  # Will be provided by decorator
             )

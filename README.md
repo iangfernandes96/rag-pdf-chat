@@ -14,10 +14,11 @@
 - **💬 Natural language chat** interface with message history
 - **🤖 Local LLM inference** via Ollama (no external APIs)
 - **📚 Source citations** with relevance scores and document references
-- **⚡ Async processing** for optimal performance
+- **⚡ Background processing** with Arq workers for document uploads
 - **🛡️ Comprehensive error handling** with user-friendly messages
 - **📊 System monitoring** and health checks
 - **🎨 Polished UX** with response quality scoring and user guidance
+- **🔄 Real-time job status tracking** with Redis persistence
 
 ---
 
@@ -32,6 +33,7 @@
 | Database         | PostgreSQL (AsyncPG)        | ✅ Phase 4 |
 | LLM              | Ollama + Mistral            | ✅ Phase 4 |
 | Backend          | FastAPI + Python            | ✅ Phase 4 |
+| Background Jobs  | Arq + Redis                 | ✅ Latest |
 | Frontend         | Streamlit                   | ✅ Phase 5 |
 | UX Polish        | Enhanced error handling     | ✅ Phase 6 |
 | Code Quality     | Black + Ruff               | ✅ Latest |
@@ -67,8 +69,11 @@ uv sync
 uv run uvicorn backend.app:app --reload  # Backend API
 uv run streamlit run frontend/app.py     # Frontend UI
 
-# Or use Docker
+# Or use Docker (includes background workers)
 docker compose up
+
+# Start background worker separately (if not using Docker)
+python start_worker.py
 ```
 
 ---
@@ -78,7 +83,9 @@ docker compose up
 ### 1. **Upload Documents**
 - Use the sidebar file uploader
 - Supports PDF files up to 50MB
-- Real-time processing with progress feedback
+- **Background processing** - uploads are queued and processed asynchronously
+- **Real-time job tracking** - monitor processing status via job IDs with Redis persistence
+- **Job management** - list, filter, and manage background jobs
 - Automatic chunking and embedding generation
 
 ### 2. **Ask Questions** 
@@ -92,6 +99,46 @@ docker compose up
 - See processing statistics (pages, chunks, tokens)
 - Delete documents as needed
 - Monitor system status and health
+
+---
+
+## 🔄 Background Processing Architecture
+
+The application now uses **Arq workers** for background document processing, providing:
+
+### **Benefits**
+- **Non-blocking uploads** - API responds immediately with job ID
+- **Scalable processing** - Multiple workers can handle concurrent documents
+- **Reliable execution** - Automatic retries and error handling
+- **Progress tracking** - Real-time status updates via job endpoints
+
+### **Components**
+- **Redis** - Message broker for job queues and job status persistence
+- **Arq Workers** - Background task processors
+- **Job Tracker** - Redis-based job status management
+- **Job Status API** - Real-time status tracking and job management
+- **Error Recovery** - Automatic retry with exponential backoff
+
+### **Processing Pipeline**
+1. **Upload** → File validation and job creation
+2. **Queue** → Document added to processing queue
+3. **Parse** → PDF text extraction and chunking
+4. **Embed** → Vector embedding generation
+5. **Store** → Vector database storage
+6. **Complete** → Job status updated and ready for querying
+
+### **API Endpoints**
+- `POST /upload` - Queue document for processing
+- `GET /jobs/{job_id}` - Check processing status
+- `GET /jobs` - List all jobs with optional filtering
+- `POST /query` - Query processed documents (unchanged)
+
+### **Job Tracking Features**
+- **Real-time Status Updates** - Jobs progress through stages: Upload → Parsing → Chunking → Embedding → Storing → Completed
+- **Persistent Storage** - Job information stored in Redis with 7-day TTL
+- **Error Tracking** - Failed jobs include detailed error messages
+- **Progress Monitoring** - Percentage completion and current stage tracking
+- **Job Management** - List, filter, and clean up old jobs
 
 ---
 

@@ -19,6 +19,8 @@ dependencies = [
     "pydantic>=2.5.0",
     "httpx>=0.25.0",
     "reportlab>=4.0.0",
+    "arq>=0.26.3",
+    "redis[hiredis]>=5.0.0",
 ]
 
 [project.optional-dependencies]
