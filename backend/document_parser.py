@@ -1,9 +1,10 @@
 """
-PDF document parsing functionality.
+PDF document parsing functionality with performance optimizations.
 """
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -27,10 +28,12 @@ class PDFParseError(Exception):
 
 
 class PDFParser:
-    """Handles PDF document parsing and text extraction."""
+    """Handles PDF document parsing and text extraction with optimizations."""
 
     def __init__(self):
         self.max_file_size = settings.document.max_file_size_mb * 1024 * 1024
+        # Use thread pool for parallel page processing
+        self._executor = ThreadPoolExecutor(max_workers=4)
 
     def validate_pdf(self, file_path: Path) -> tuple[bool, str | None]:
         """
@@ -99,6 +102,20 @@ class PDFParser:
         except Exception as e:
             self._handle_page_error(page_num, e, metadata)
             return None
+
+    def _process_page_parallel(self, args: tuple) -> tuple[int, str | None]:
+        """
+        Process a single page in parallel.
+
+        Args:
+            args: Tuple of (page, page_num, metadata)
+
+        Returns:
+            Tuple of (page_num, text_or_none)
+        """
+        page, page_num, metadata = args
+        text = self._extract_page_safely(page, page_num, metadata)
+        return page_num, text
 
     @time_function
     def extract_text_from_pdf(self, file_path: Path) -> tuple[str, int, dict]:

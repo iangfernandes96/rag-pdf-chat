@@ -222,7 +222,7 @@ async def health_check_services(ctx: dict[str, Any]) -> dict[str, Any]:
 
 # Arq worker functions
 class WorkerSettings:
-    """Arq worker settings."""
+    """Arq worker settings optimized for performance."""
 
     functions = [
         process_document,
@@ -232,8 +232,8 @@ class WorkerSettings:
 
     redis_settings = RedisSettings.from_dsn(settings.arq.redis_url)
 
-    # Worker settings
-    max_jobs = 10
+    # Worker settings optimized for performance
+    max_jobs = 4  # Reduced from 10 to prevent resource contention
     job_timeout = 1800  # 30 minutes
     keep_result = 3600  # 1 hour
     max_tries = 3

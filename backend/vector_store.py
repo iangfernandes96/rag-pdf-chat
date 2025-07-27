@@ -271,18 +271,16 @@ class VectorStore:
     def __init__(self, url: str | None = None, collection_name: str | None = None):
         self.url = url or settings.vector.qdrant_url
         self.collection_name = collection_name or settings.vector.collection_name
-        self.vector_size = settings.vector.vector_size
         self.client: AsyncQdrantClient | None = None
         self.validator = VectorStoreValidator()
         self.search_cache = SearchResultCache()
+        # Use optimized batch size for better performance
+        from .constants import DefaultValues
+
+        self.batch_size = DefaultValues.VECTOR_BATCH_SIZE
 
         # Performance monitoring
         self._performance_metrics: dict[str, dict[str, Any]] = {}
-
-        # Batch processing configuration
-        self.batch_size = getattr(
-            settings.vector, "batch_size", DefaultValues.BATCH_SIZE
-        )
 
     @retry_with_exponential_backoff()
     @time_async_function
@@ -339,12 +337,12 @@ class VectorStore:
 
             # Create collection
             logger.info(f"Creating collection: {self.collection_name}")
-            logger.info(f"Vector size: {self.vector_size}")
+            logger.info(f"Vector size: {settings.vector.vector_size}")
 
             await self.client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(
-                    size=self.vector_size,
+                    size=settings.vector.vector_size,
                     distance=Distance.COSINE,
                 ),
             )

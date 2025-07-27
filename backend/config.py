@@ -30,16 +30,21 @@ class LLMSettings(BaseModel):
     """LLM configuration."""
 
     ollama_url: str = DefaultValues.OLLAMA_URL
-    ollama_model: str = "mistral"
+    ollama_model: str = "mistral"  # Original model
     timeout: int = DefaultValues.HTTP_TIMEOUT
-    max_tokens: int = 2048
+    max_tokens: int = 4096
     temperature: float = 0.7
+    top_p: float = 0.9
+    top_k: int = 40
+    repeat_penalty: float = 1.1
+    num_ctx: int = 4096  # Reduced context window
+    num_thread: int = 4  # Optimize CPU usage
 
 
 class EmbeddingSettings(BaseModel):
     """Embedding model configuration."""
 
-    model_name: str = "all-MiniLM-L6-v2"
+    model_name: str = "sentence-transformers/paraphrase-MiniLM-L3-v2"
     cache_dir: str = "./cache"
     batch_size: int = DefaultValues.BATCH_SIZE
 

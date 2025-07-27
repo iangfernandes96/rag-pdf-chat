@@ -27,6 +27,7 @@ from .models import (
     QueryResponse,
 )
 from .rag_service import RAGService
+from .redis_cache import cache_service
 
 # Configure logging
 logging.basicConfig(
@@ -74,6 +75,11 @@ async def app_lifespan(app: FastAPI):
         await job_tracker.initialize()
         app.state.job_tracker = job_tracker
 
+        # Initialize Redis cache service
+        logger.info("💾 Initializing Redis cache service...")
+        await cache_service.initialize()
+        app.state.cache_service = cache_service
+
         logger.info("✅ API server initialized successfully")
 
         yield  # Application runs here
@@ -100,6 +106,9 @@ async def app_lifespan(app: FastAPI):
 
         if hasattr(app.state, "arq_pool") and app.state.arq_pool:
             await app.state.arq_pool.close()
+
+        if hasattr(app.state, "cache_service") and app.state.cache_service:
+            await app.state.cache_service.cleanup()
 
         logger.info("✅ Shutdown completed")
 
@@ -146,24 +155,27 @@ async def health_check():
         # Get system status from all services
         rag_status = await app.state.rag_service.get_system_status()
         llm_status = await app.state.llm_service.get_status()
+        cache_status = await app.state.cache_service.health_check()
 
         services = {
             "rag_service": rag_status,
             "llm_service": llm_status,
             "database": db_status,
+            "cache_service": cache_status,
         }
 
-        # Determine overall health using unified format
-        overall_healthy = all(
+        # Check if all services are healthy
+        all_healthy = all(
             [
                 rag_status.get("healthy", False),
                 llm_status.get("healthy", False),
                 db_status.get("healthy", False),
+                cache_status.get("status") == "healthy",
             ]
         )
 
         return HealthResponse(
-            status="healthy" if overall_healthy else "degraded",
+            status="healthy" if all_healthy else "degraded",
             timestamp=datetime.now(UTC).isoformat(),
             services=services,
             version="1.0.0",
@@ -470,6 +482,45 @@ async def delete_document(document_id: str):
         raise HTTPException(
             status_code=HttpStatus.INTERNAL_SERVER_ERROR,
             detail=f"Deletion failed: {str(e)}",
+        ) from e
+
+
+@app.delete("/cache", response_model=dict[str, Any])
+async def clear_cache():
+    """
+    Clear all cached data from Redis.
+
+    Returns:
+        Dictionary with cache clearing results
+    """
+    try:
+        # Clear LLM response cache
+        llm_cleared = await app.state.cache_service.clear_prefix("llm_response")
+
+        # Clear query embedding cache
+        embedding_cleared = await app.state.cache_service.clear_prefix(
+            "query_embedding"
+        )
+
+        total_cleared = llm_cleared + embedding_cleared
+
+        logger.info(f"Cleared {total_cleared} cache entries")
+
+        return {
+            "success": True,
+            "message": f"Cache cleared successfully. Removed {total_cleared} entries.",
+            "details": {
+                "llm_responses_cleared": llm_cleared,
+                "embeddings_cleared": embedding_cleared,
+                "total_cleared": total_cleared,
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to clear cache: {str(e)}")
+        raise HTTPException(
+            status_code=HttpStatus.INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear cache: {str(e)}",
         ) from e
 
 

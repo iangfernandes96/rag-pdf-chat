@@ -7,13 +7,14 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from functools import wraps
 from typing import Any
 
 import httpx
 
 from .config import settings
+from .redis_cache import cache_service
 from .utils.timing import time_async_function
 
 logger = logging.getLogger(__name__)
@@ -67,35 +68,17 @@ class OptimizedPromptTemplate:
     """Pre-compiled prompt templates for better performance."""
 
     RAG_SYSTEM_PROMPT = (
-        "You are a helpful assistant that answers questions based on "
-        "provided context from documents.\n\n"
-        "Guidelines:\n"
-        "- Use ONLY the provided context to answer questions\n"
-        "- If the context doesn't contain enough information, say so clearly\n"
-        "- Be precise and cite specific information from the context\n"
-        "- Provide clear, well-structured answers\n"
-        "- If multiple documents are referenced, acknowledge that in your response"
+        "Answer questions using ONLY the provided context. "
+        "Be concise and accurate. If context is insufficient, say so."
     )
 
-    RAG_USER_TEMPLATE = (
-        "Context from documents:\n{context}\n\n"
-        "Question: {question}\n\n"
-        "Please provide a comprehensive answer based on the context above. "
-        "If the context doesn't contain sufficient information to answer "
-        "the question, please state that clearly."
-    )
+    RAG_USER_TEMPLATE = "Context:\n{context}\n\nQuestion: {question}\n\nAnswer:"
 
-    SIMPLE_RAG_TEMPLATE = (
-        "Based on the following context from documents, "
-        "please answer the user's question.\n\n"
-        "Context:\n{context}\n\n"
-        "Question: {question}\n\n"
-        "Answer:"
-    )
+    SIMPLE_RAG_TEMPLATE = "Context:\n{context}\n\nQuestion: {question}\n\nAnswer:"
 
     # Pre-compiled format strings for chunk formatting
-    CHUNK_TEMPLATE = "[Document {doc_id}, Relevance: {score:.3f}]\n{content}"
-    CONTEXT_TEMPLATE = "Context {index}:\n{chunk_text}"
+    CHUNK_TEMPLATE = "[Doc {doc_id}]\n{content}"
+    CONTEXT_TEMPLATE = "{chunk_text}"
 
     @staticmethod
     def format_rag_prompt(context: str, question: str) -> str:
@@ -173,33 +156,39 @@ def retry_on_failure(max_retries: int = 3, delay: float = 1.0):
 
 
 class LLMService:
-    """Service for interacting with local LLM via Ollama with optimizations."""
+    """Optimized LLM service with caching and performance tuning."""
 
     def __init__(self):
         # Validate configuration first
-        is_valid, error = ConfigValidator.validate_llm_config(settings.llm)
+        self.config = settings.llm
+        is_valid, error_msg = ConfigValidator.validate_llm_config(self.config)
         if not is_valid:
-            raise LLMError(f"Invalid configuration: {error}")
+            raise LLMError(f"Invalid LLM configuration: {error_msg}")
 
-        self.ollama_url = settings.llm.ollama_url
-        self.model_name = settings.llm.ollama_model
-        self.max_tokens = settings.llm.max_tokens
-        self.temperature = settings.llm.temperature
-        self.timeout = settings.llm.timeout
+        # Initialize service properties
+        self.ollama_url = self.config.ollama_url.rstrip("/")
+        self.model_name = self.config.ollama_model
+        self.timeout = self.config.timeout
         self.client: httpx.AsyncClient | None = None
         self.model_loaded = False
+        self._available_models_cache: list[str] = []
+        self._cache_timestamp = 0.0
 
-        # Caching for model availability (reduces API calls)
-        self._model_cache: dict[str, Any] = {}
-        self._cache_ttl = timedelta(minutes=5)
+        # Initialize response cache
+        self.response_cache = cache_service
 
-        # Pre-build base payload template for efficiency
+        # Performance-optimized base payload
         self._base_payload = {
             "model": self.model_name,
             "stream": False,
             "options": {
-                "temperature": self.temperature,
-                "num_predict": self.max_tokens,
+                "num_predict": self.config.max_tokens,
+                "temperature": self.config.temperature,
+                "top_p": getattr(self.config, "top_p", 0.9),
+                "top_k": getattr(self.config, "top_k", 40),
+                "repeat_penalty": getattr(self.config, "repeat_penalty", 1.1),
+                "num_ctx": getattr(self.config, "num_ctx", 4096),
+                "num_thread": getattr(self.config, "num_thread", 4),
             },
         }
 
@@ -262,14 +251,13 @@ class LLMService:
             List of available model names
         """
         now = datetime.now(UTC)
-        cache_key = "available_models"
 
         # Check cache first
         if (
-            cache_key in self._model_cache
-            and now - self._model_cache[cache_key]["timestamp"] < self._cache_ttl
+            self._available_models_cache
+            and now.timestamp() - self._cache_timestamp < 300  # 5 minutes
         ):
-            return self._model_cache[cache_key]["data"]
+            return self._available_models_cache
 
         # Fetch from API
         response = await self._make_request("get", f"{self.ollama_url}/api/tags")
@@ -277,7 +265,8 @@ class LLMService:
         models = [model["name"] for model in models_data.get("models", [])]
 
         # Cache result
-        self._model_cache[cache_key] = {"data": models, "timestamp": now}
+        self._available_models_cache = models
+        self._cache_timestamp = now.timestamp()
         return models
 
     async def _ensure_model_available_cached(self) -> None:
@@ -293,7 +282,8 @@ class LLMService:
                 logger.info(f"Attempting to pull model: {self.model_name}")
 
                 # Clear cache and try once more after pulling
-                self._model_cache.clear()
+                self._available_models_cache = []
+                self._cache_timestamp = 0.0
                 await self._pull_model()
             else:
                 logger.info(f"✅ Model {self.model_name} is available")
@@ -347,6 +337,20 @@ class LLMService:
             raise LLMError("LLM service not initialized")
 
         try:
+            # Check cache first - use chunk IDs for consistent caching
+            chunk_ids = [chunk.get("chunk_id", "") for chunk in context_chunks]
+            cached_response = await self.response_cache.get(
+                "llm_response", query, sorted(chunk_ids)
+            )
+
+            if cached_response:
+                logger.info(f"Cache hit for query: {query[:50]}...")
+                return {
+                    **cached_response,
+                    "cached": True,
+                    "generation_time": 0.0,
+                }
+
             # Format context with optimized string operations
             context = OptimizedPromptTemplate.format_context(context_chunks)
 
@@ -381,7 +385,7 @@ class LLMService:
 
             logger.info("✅ Response generated")
 
-            return {
+            result = {
                 "success": True,
                 "answer": response_data["response"],
                 "model_used": self.model_name,
@@ -389,7 +393,15 @@ class LLMService:
                 "total_tokens": response_data.get("eval_count", 0),
                 "prompt_tokens": response_data.get("prompt_eval_count", 0),
                 "context_chunks": len(context_chunks),
+                "cached": False,
             }
+
+            # Cache the response in Redis
+            await self.response_cache.set(
+                "llm_response", result, 3600, query, sorted(chunk_ids)
+            )
+
+            return result
 
         except Exception as e:
             logger.error(f"❌ Failed to generate RAG response: {str(e)}")
@@ -398,6 +410,7 @@ class LLMService:
                 "error": str(e),
                 "model_used": self.model_name,
                 "generation_time": 0.0,  # Will be provided by decorator
+                "cached": False,
             }
 
     async def _generate_completion(
@@ -559,12 +572,12 @@ class LLMService:
                     "model_loaded": self.model_loaded,
                     "available_models": available_models,
                     "url": self.ollama_url,
-                    "temperature": self.temperature,
-                    "max_tokens": self.max_tokens,
-                    "timeout": self.timeout,
+                    "temperature": self.config.temperature,
+                    "max_tokens": self.config.max_tokens,
+                    "timeout": self.config.timeout,
                     "cache_status": {
-                        "cached_entries": len(self._model_cache),
-                        "cache_ttl_minutes": self._cache_ttl.total_seconds() / 60,
+                        "cached_entries": 0,  # Redis cache doesn't have direct count
+                        "cache_ttl_minutes": 60,  # 1 hour default
                     },
                 },
             }
@@ -587,7 +600,8 @@ class LLMService:
             self.client = None
 
         # Clear cache
-        self._model_cache.clear()
+        self._available_models_cache = []
+        self._cache_timestamp = 0.0
 
         logger.info("✅ LLM service cleanup completed")
 
