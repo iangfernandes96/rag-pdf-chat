@@ -579,9 +579,9 @@ class RAGService:
                         "url": self.vector_store.url,
                     },
                     "cache_status": {
-                        "query_cache_size": 0,  # Redis cache doesn't have a direct count of cached queries
-                        "cache_ttl_hours": 0,  # Redis cache doesn't have a direct TTL
-                        "max_cache_size": 0,  # Redis cache doesn't have a direct max size
+                        "query_cache_size": 0,
+                        "cache_ttl_hours": 0,
+                        "max_cache_size": 0,
                     },
                 },
             }
@@ -590,30 +590,11 @@ class RAGService:
             logger.error(f"Failed to get system status: {str(e)}")
             return {"healthy": False, "status": "error", "error": str(e), "details": {}}
 
-    async def clear_cache(self) -> dict[str, Any]:
-        """
-        Clear query cache and return cache statistics.
-
-        Returns:
-            Dictionary with cache clearing results
-        """
-        # This method is no longer needed as cache is managed by Redis.
-        # Keeping it for now, but it will be removed in a subsequent edit.
-        return {
-            "success": True,
-            "entries_cleared": 0,
-            "cache_size_after": 0,
-        }
-
     async def cleanup(self) -> None:
         """Clean up resources."""
         try:
             # Clean up embedding service
             self.embedding_service.cleanup()
-
-            # Clear cache
-            # This method is no longer needed as cache is managed by Redis.
-            # Keeping it for now, but it will be removed in a subsequent edit.
 
             logger.info("RAG service cleaned up")
         except Exception as e:

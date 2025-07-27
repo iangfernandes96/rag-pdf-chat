@@ -43,7 +43,6 @@ async def app_lifespan(app: FastAPI):
     logger.info("🚀 Starting RAG PDF Chat API...")
 
     try:
-        # Initialize only essential services for API server
         logger.info("📊 Initializing database service...")
         db_service = DatabaseService()
         await db_service.initialize()

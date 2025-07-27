@@ -68,17 +68,35 @@ class OptimizedPromptTemplate:
     """Pre-compiled prompt templates for better performance."""
 
     RAG_SYSTEM_PROMPT = (
-        "Answer questions using ONLY the provided context. "
-        "Be concise and accurate. If context is insufficient, say so."
+        "You are a helpful assistant that answers questions based on "
+        "provided context from documents.\n\n"
+        "Guidelines:\n"
+        "- Use ONLY the provided context to answer questions\n"
+        "- If the context doesn't contain enough information, say so clearly\n"
+        "- Be precise and cite specific information from the context\n"
+        "- Provide clear, well-structured answers\n"
+        "- If multiple documents are referenced, acknowledge that in your response"
     )
 
-    RAG_USER_TEMPLATE = "Context:\n{context}\n\nQuestion: {question}\n\nAnswer:"
+    RAG_USER_TEMPLATE = (
+        "Context from documents:\n{context}\n\n"
+        "Question: {question}\n\n"
+        "Please provide a comprehensive answer based on the context above. "
+        "If the context doesn't contain sufficient information to answer "
+        "the question, please state that clearly."
+    )
 
-    SIMPLE_RAG_TEMPLATE = "Context:\n{context}\n\nQuestion: {question}\n\nAnswer:"
+    SIMPLE_RAG_TEMPLATE = (
+        "Based on the following context from documents, "
+        "please answer the user's question.\n\n"
+        "Context:\n{context}\n\n"
+        "Question: {question}\n\n"
+        "Answer:"
+    )
 
     # Pre-compiled format strings for chunk formatting
-    CHUNK_TEMPLATE = "[Doc {doc_id}]\n{content}"
-    CONTEXT_TEMPLATE = "{chunk_text}"
+    CHUNK_TEMPLATE = "[Document {doc_id}, Relevance: {score:.3f}]\n{content}"
+    CONTEXT_TEMPLATE = "Context {index}:\n{chunk_text}"
 
     @staticmethod
     def format_rag_prompt(context: str, question: str) -> str:
