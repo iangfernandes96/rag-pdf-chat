@@ -55,7 +55,7 @@ services:
       redis:
         condition: service_healthy
     entrypoint: [ "/app/entrypoint.sh" ]
-    command: [ "python", "-m", "uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2" ]
+    command: [ "python", "-m", "uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1" ]
 
   # Arq Worker for Background Processing
   worker:
