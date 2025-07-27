@@ -290,12 +290,10 @@ class RAGService:
                 "document": document,
                 "chunks": chunks,
                 "embeddings_count": len(embeddings),
-                "processing_time": ingestion_result.processing_time,
                 "stats": self.document_ingestion.get_document_stats(document, chunks),
             }
 
         except RAGError:
-            # Re-raise validation errors
             raise
         except Exception as e:
             logger.error(f"Document processing failed: {str(e)}")
@@ -336,12 +334,6 @@ class RAGService:
         logger.debug(f"Generated and cached embedding for: {query[:50]}...")
 
         return embedding, total_time
-
-    def _cleanup_cache(self) -> None:
-        """Clean up old cache entries to maintain cache size limit."""
-        # This method is no longer needed as cache is managed by Redis.
-        # Keeping it for now, but it will be removed in a subsequent edit.
-        pass
 
     async def search_documents(
         self,
@@ -398,13 +390,11 @@ class RAGService:
                     "document_filter": document_filter,
                 },
                 "cache_info": {
-                    "cached_queries": 0,  # Redis cache doesn't have a direct count of cached queries
-                    "cache_hit": embed_time < 0.001,  # Very fast = cache hit
+                    "cache_hit": embed_time < 0.001,
                 },
             }
 
         except RAGError:
-            # Re-raise validation errors
             raise
         except Exception as e:
             logger.error(f"Document search failed: {str(e)}")

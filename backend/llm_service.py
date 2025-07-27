@@ -407,7 +407,7 @@ class LLMService:
                 "success": True,
                 "answer": response_data["response"],
                 "model_used": self.model_name,
-                "generation_time": 0.0,  # Will be provided by decorator
+                "generation_time": 0.0,
                 "total_tokens": response_data.get("eval_count", 0),
                 "prompt_tokens": response_data.get("prompt_eval_count", 0),
                 "context_chunks": len(context_chunks),
@@ -427,7 +427,7 @@ class LLMService:
                 "success": False,
                 "error": str(e),
                 "model_used": self.model_name,
-                "generation_time": 0.0,  # Will be provided by decorator
+                "generation_time": 0.0,
                 "cached": False,
             }
 
@@ -488,7 +488,7 @@ class LLMService:
                 "success": True,
                 "answer": response_data["response"],
                 "model_used": self.model_name,
-                "generation_time": 0.0,  # Will be provided by decorator
+                "generation_time": 0.0,
                 "total_tokens": response_data.get("eval_count", 0),
             }
 
@@ -498,7 +498,7 @@ class LLMService:
                 "success": False,
                 "error": str(e),
                 "model_used": self.model_name,
-                "generation_time": 0.0,  # Will be provided by decorator
+                "generation_time": 0.0,
             }
 
     async def generate_rag_response_streaming(

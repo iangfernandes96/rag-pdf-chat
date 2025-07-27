@@ -165,8 +165,6 @@ class PDFParser:
 
             # Single join operation - much more efficient than repeated concatenation
             extracted_text = "".join(text_parts)
-
-            metadata["extraction_time_seconds"] = 0.0  # Will be provided by decorator
             metadata["total_characters"] = len(extracted_text)
 
             if not extracted_text.strip():
@@ -222,7 +220,6 @@ class PDFParser:
                 return ProcessingResult(
                     success=False,
                     error_message=error_msg,
-                    processing_time=0.0,  # Will be provided by decorator
                 )
 
             # Extract text with optimized processing
@@ -238,7 +235,6 @@ class PDFParser:
                 page_count=page_count,
                 total_chunks=0,  # Will be updated after chunking
                 uploaded_at=datetime.now(UTC),
-                processing_time=0.0,  # Will be provided by decorator
                 metadata=extraction_metadata,
             )
 
@@ -248,7 +244,6 @@ class PDFParser:
                 success=True,
                 document=document,
                 content=content,
-                processing_time=0.0,  # Will be provided by decorator
             )
 
         except PDFParseError as e:
@@ -256,7 +251,6 @@ class PDFParser:
             return ProcessingResult(
                 success=False,
                 error_message=str(e),
-                processing_time=0.0,  # Will be provided by decorator
             )
         except Exception as e:
             logger.error(
@@ -265,5 +259,4 @@ class PDFParser:
             return ProcessingResult(
                 success=False,
                 error_message=f"Unexpected error: {str(e)}",
-                processing_time=0.0,  # Will be provided by decorator
             )

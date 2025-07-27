@@ -416,7 +416,6 @@ class VectorStore:
             return True
 
         except VectorStoreError:
-            # Re-raise validation errors
             raise
         except Exception as e:
             logger.error(f"Failed to store embeddings: {str(e)}")
@@ -518,7 +517,6 @@ class VectorStore:
             return results
 
         except VectorStoreError:
-            # Re-raise validation errors
             raise
         except Exception as e:
             logger.error(f"Failed to search similar chunks: {str(e)}")

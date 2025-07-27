@@ -57,7 +57,6 @@ class Document(BaseModel):
     page_count: int
     total_chunks: int
     uploaded_at: datetime
-    processing_time: float
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -68,7 +67,6 @@ class ProcessingResult(BaseModel):
     document: Document | None = None
     content: str = ""  # Extracted text content
     chunks: list[DocumentChunk] = Field(default_factory=list)
-    processing_time: float = 0.0
     error_message: str | None = None
 
 

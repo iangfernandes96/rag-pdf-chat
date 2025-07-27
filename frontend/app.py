@@ -552,10 +552,11 @@ def display_system_status():
         with col1:
             st.subheader("🧠 RAG Service")
             rag_service = services.get("rag_service", {})
-            if rag_service.get("system_healthy", False):
+            if rag_service.get("healthy", False):
                 st.success("✅ Healthy")
 
-                embedding_service = rag_service.get("embedding_service", {})
+                details = rag_service.get("details", {})
+                embedding_service = details.get("embedding_service", {})
                 if embedding_service.get("loaded", False):
                     st.info(f"Model: {embedding_service.get('model_name', 'N/A')}")
                     st.info(
@@ -563,27 +564,35 @@ def display_system_status():
                     )
             else:
                 st.error("❌ Not healthy")
+                if rag_service.get("error"):
+                    st.error(f"Error: {rag_service.get('error')}")
 
         with col2:
             st.subheader("🤖 LLM Service")
             llm_service = services.get("llm_service", {})
             if llm_service.get("healthy", False):
                 st.success("✅ Healthy")
-                st.info(f"Model: {llm_service.get('model', 'N/A')}")
-                st.info(f"URL: {llm_service.get('url', 'N/A')}")
+                details = llm_service.get("details", {})
+                st.info(f"Model: {details.get('model', 'N/A')}")
+                st.info(f"URL: {details.get('url', 'N/A')}")
             else:
                 st.error("❌ Not available")
+                if llm_service.get("error"):
+                    st.error(f"Error: {llm_service.get('error')}")
 
         with col3:
             st.subheader("📊 Database")
             db_service = services.get("database", {})
             if db_service.get("healthy", False):
                 st.success("✅ Connected")
+                details = db_service.get("details", {})
                 st.info(
-                    f"Pool: {db_service.get('pool_size', 0)}/{db_service.get('pool_max_size', 0)}"
+                    f"Pool: {details.get('pool_size', 0)}/{details.get('pool_max_size', 0)}"
                 )
             else:
                 st.error("❌ Not connected")
+                if db_service.get("error"):
+                    st.error(f"Error: {db_service.get('error')}")
 
 
 def main():

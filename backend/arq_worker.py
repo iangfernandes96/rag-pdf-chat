@@ -145,7 +145,6 @@ async def process_document(
                 "job_id": job_id,
                 "document_id": document.id,
                 "chunks_count": len(chunks),
-                "processing_time": result.get("processing_time", 0.0),
             }
 
         finally:
