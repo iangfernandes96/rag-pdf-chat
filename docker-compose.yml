@@ -42,10 +42,12 @@ services:
     build: .
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_pdf_chat
       - QDRANT_URL=http://qdrant:6333
-      - OLLAMA_URL=http://host.docker.internal:11434
+      - GEMINI_MODEL=gemini-2.0-flash
       - ARQ_REDIS_URL=redis://redis:6379/0
     depends_on:
       postgres:
@@ -60,10 +62,12 @@ services:
   # Arq Worker for Background Processing
   worker:
     build: .
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_pdf_chat
       - QDRANT_URL=http://qdrant:6333
-      - OLLAMA_URL=http://host.docker.internal:11434
+      - GEMINI_MODEL=gemini-2.0-flash
       - ARQ_REDIS_URL=redis://redis:6379/0
     depends_on:
       postgres:

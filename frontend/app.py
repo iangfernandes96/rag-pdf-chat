@@ -112,7 +112,7 @@ class RAGChatClient:
         self,
         query: str,
         document_id: str | None = None,
-        limit: int = 5,
+        limit: int = 10,
         include_context: bool = True,
     ) -> dict[str, Any]:
         """Query documents using RAG."""
@@ -394,7 +394,7 @@ def main_chat_interface():
         selected_doc = st.selectbox("Search in:", doc_options)
 
         # Search parameters
-        num_chunks = st.slider("Max chunks to retrieve:", 1, 10, 5)
+        num_chunks = st.slider("Max chunks to retrieve:", 1, 50, 10)
         include_sources = st.checkbox("Show sources", value=True)
 
         # Statistics
@@ -574,7 +574,7 @@ def display_system_status():
                 st.success("✅ Healthy")
                 details = llm_service.get("details", {})
                 st.info(f"Model: {details.get('model', 'N/A')}")
-                st.info(f"URL: {details.get('url', 'N/A')}")
+                st.info(f"Provider: {details.get('provider', 'N/A')}")
             else:
                 st.error("❌ Not available")
                 if llm_service.get("error"):
@@ -637,13 +637,13 @@ def main():
         2. **Embedding Generation**: Text chunks are converted to vector embeddings
         3. **Vector Storage**: Embeddings are stored in a vector database (Qdrant)
         4. **Query Processing**: Your questions are embedded and matched with relevant chunks
-        5. **Response Generation**: A local LLM (via Ollama) generates answers using the retrieved context
+        5. **Response Generation**: Google's Gemini API generates answers using the retrieved context
 
         ### 🛠️ Technology Stack:
 
         - **Frontend**: Streamlit
         - **Backend**: FastAPI + Python
-        - **LLM**: Ollama (Mistral model)
+        - **LLM**: Google Gemini API
         - **Embeddings**: sentence-transformers (all-MiniLM-L6-v2)
         - **Vector DB**: Qdrant
         - **Database**: PostgreSQL
@@ -651,7 +651,7 @@ def main():
 
         ### 🚀 Features:
 
-        - ✅ Local processing (no external APIs)
+        - ✅ Cloud-based LLM processing
         - ✅ Multiple document support
         - ✅ Source citation
         - ✅ Real-time chat interface

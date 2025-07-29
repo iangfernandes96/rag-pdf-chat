@@ -28,10 +28,10 @@ class DefaultValues:
     CACHE_TTL_HOURS: Final[float] = 1.0
 
     # Search limits
-    RAG_SEARCH_LIMIT: Final[int] = 50  # Reduced from 100
+    RAG_SEARCH_LIMIT: Final[int] = 100  # Increased from 50
     VECTOR_SEARCH_LIMIT: Final[int] = 1000
     MIN_SEARCH_LIMIT: Final[int] = 1
-    DEFAULT_CONTEXT_CHUNKS: Final[int] = 3  # Reduced from 5
+    DEFAULT_CONTEXT_CHUNKS: Final[int] = 10  # Increased from 3
 
     # File processing
     MAX_FILE_SIZE_MB: Final[int] = 10
@@ -52,10 +52,10 @@ class DefaultValues:
     BATCH_SIZE: Final[int] = 500  # Increased from 100 for better throughput
 
     # Embedding batch processing
-    EMBEDDING_BATCH_SIZE: Final[int] = 500  # Increased from 200 for better throughput
+    EMBEDDING_BATCH_SIZE: Final[int] = 500  # Increased from 200
 
     # Vector storage batch processing
-    VECTOR_BATCH_SIZE: Final[int] = 500  # New constant for vector storage batches
+    VECTOR_BATCH_SIZE: Final[int] = 500  # New constant for vector storage
 
     # Database settings
     MAX_QUERY_LENGTH: Final[int] = 1000
@@ -222,7 +222,7 @@ class ModelDefaults:
     """Default model and embedding settings."""
 
     EMBEDDING_MODEL: Final[str] = (
-        "sentence-transformers/paraphrase-MiniLM-L3-v2"  # 2x faster, excellent quality
+        "sentence-transformers/paraphrase-MiniLM-L3-v2"  # 2x faster
     )
     LLM_MODEL: Final[str] = "mistral"
     MAX_TOKENS: Final[int] = 2048
@@ -260,6 +260,8 @@ class EnvironmentKeys:
     # LLM
     OLLAMA_URL: Final[str] = "OLLAMA_URL"
     OLLAMA_MODEL: Final[str] = "OLLAMA_MODEL"
+    GEMINI_API_KEY: Final[str] = "GEMINI_API_KEY"
+    GEMINI_MODEL: Final[str] = "GEMINI_MODEL"
 
     # Document processing
     CHUNK_SIZE: Final[str] = "CHUNK_SIZE"
