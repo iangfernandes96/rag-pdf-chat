@@ -139,9 +139,9 @@ class QueryRequest(BaseModel):
         description="The question to ask about uploaded documents",
     )
     limit: int = Field(
-        default=10,
+        default=15,
         ge=1,
-        le=50,
+        le=500,
         description="Maximum number of relevant chunks to retrieve",
     )
     document_id: str | None = Field(

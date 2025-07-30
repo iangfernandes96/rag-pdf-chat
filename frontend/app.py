@@ -394,7 +394,7 @@ def main_chat_interface():
         selected_doc = st.selectbox("Search in:", doc_options)
 
         # Search parameters
-        num_chunks = st.slider("Max chunks to retrieve:", 1, 50, 10)
+        num_chunks = st.slider("Max chunks to retrieve:", 1, 500, 15)
         include_sources = st.checkbox("Show sources", value=True)
 
         # Statistics
