@@ -208,3 +208,6 @@ __marimo__/
 
 # txt files
 *.txt
+
+# .env files
+*.env

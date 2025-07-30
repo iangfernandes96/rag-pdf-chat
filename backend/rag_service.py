@@ -338,7 +338,7 @@ class RAGService:
     async def search_documents(
         self,
         query: str,
-        limit: int = 5,
+        limit: int = 10,
         score_threshold: float = 0.1,
         document_filter: str | None = None,
     ) -> dict[str, Any]:

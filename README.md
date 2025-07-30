@@ -1,6 +1,6 @@
 # 🧠 RAG PDF Chat
 
-**RAG PDF Chat** is a complete Retrieval-Augmented Generation (RAG) application that lets you upload PDFs and ask natural language questions about them. It runs entirely locally on your MacBook (including M1/M2), using local embeddings, vector search, and an LLM like Mistral via Ollama.
+**RAG PDF Chat** is a complete Retrieval-Augmented Generation (RAG) application that lets you upload PDFs and ask natural language questions about them. It uses local embeddings, vector search, and Google's Gemini API for LLM inference.
 
 **🎉 PRODUCTION READY** - Fully implemented through Phase 6 with comprehensive testing and UX polish!
 
@@ -12,7 +12,7 @@
 - **🔍 Smart document chunking** and embedding locally
 - **🗃️ Vector database storage** with Qdrant for fast retrieval
 - **💬 Natural language chat** interface with message history
-- **🤖 Local LLM inference** via Ollama (no external APIs)
+- **🤖 LLM inference** via Google Gemini API
 - **📚 Source citations** with relevance scores and document references
 - **⚡ Background processing** with Arq workers for document uploads
 - **🛡️ Comprehensive error handling** with user-friendly messages
@@ -31,7 +31,7 @@
 | Embeddings       | `sentence-transformers`     | ✅ Phase 3 |
 | Vector Store     | Qdrant (AsyncClient)        | ✅ Phase 3 |
 | Database         | PostgreSQL (AsyncPG)        | ✅ Phase 4 |
-| LLM              | Ollama + Mistral            | ✅ Phase 4 |
+| LLM              | Google Gemini API            | ✅ Phase 4 |
 | Backend          | FastAPI + Python            | ✅ Phase 4 |
 | Background Jobs  | Arq + Redis                 | ✅ Latest |
 | Frontend         | Streamlit                   | ✅ Phase 5 |
@@ -42,7 +42,19 @@
 
 ## 🚀 Quick Start
 
-### 1. One-Command Setup and Run
+### 1. Environment Setup
+
+First, set up your environment variables:
+
+```bash
+# Copy the example environment file
+cp config.env.example .env
+
+# Edit the .env file and add your Gemini API key
+# Get your API key from: https://makersuite.google.com/app/apikey
+```
+
+### 2. One-Command Setup and Run
 
 ```bash
 # Download and run the complete application
@@ -52,9 +64,8 @@ cd rag-pdf-chat
 ```
 
 This script will:
-- ✅ Check dependencies (uv, Ollama)
+- ✅ Check dependencies (uv, Gemini API key)
 - ✅ Install Python packages
-- ✅ Pull the Mistral model
 - ✅ Run comprehensive tests
 - ✅ Start both backend and frontend
 - ✅ Open the application in your browser
@@ -70,6 +81,7 @@ uv run uvicorn backend.app:app --reload  # Backend API
 uv run streamlit run frontend/app.py     # Frontend UI
 
 # Or use Docker (includes background workers)
+# Make sure your .env file contains your GEMINI_API_KEY
 docker compose up
 
 # Start background worker separately (if not using Docker)
@@ -240,7 +252,7 @@ Once running, access these URLs:
 - **🖥️ Frontend (Streamlit)**: http://localhost:8501
 - **🔧 Backend API (FastAPI)**: http://localhost:8000  
 - **📚 API Documentation**: http://localhost:8000/docs
-- **🤖 Ollama API**: http://localhost:11434
+- **🤖 Gemini API**: Configured via environment variables
 
 ---
 
@@ -250,9 +262,9 @@ Key settings can be configured via environment variables:
 
 ```bash
 # LLM Settings
-OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=mistral
-LLM_TEMPERATURE=0.1
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.0-flash
+LLM_TEMPERATURE=0.7
 
 # Vector Database
 QDRANT_URL=http://localhost:6333

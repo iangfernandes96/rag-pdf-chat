@@ -3,10 +3,20 @@ Configuration settings for the RAG PDF Chat application.
 """
 
 import os
+from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from .constants import DefaultValues, EnvironmentKeys
+
+# Load environment variables from .env file if it exists
+env_path = Path(__file__).parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
+else:
+    # Try to load from current directory
+    load_dotenv()
 
 
 class DatabaseSettings(BaseModel):
@@ -29,8 +39,16 @@ class VectorSettings(BaseModel):
 class LLMSettings(BaseModel):
     """LLM configuration."""
 
+    # Ollama settings (legacy)
     ollama_url: str = DefaultValues.OLLAMA_URL
     ollama_model: str = "mistral"  # Original model
+
+    # Gemini settings
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+    use_gemini: bool = True  # Set to False to use Ollama/Mistral
+
+    # Common settings
     timeout: int = DefaultValues.HTTP_TIMEOUT
     max_tokens: int = 4096
     temperature: float = 0.7
@@ -81,6 +99,8 @@ class Settings:
         self.llm = LLMSettings(
             ollama_url=os.getenv(EnvironmentKeys.OLLAMA_URL, DefaultValues.OLLAMA_URL),
             ollama_model=os.getenv(EnvironmentKeys.OLLAMA_MODEL, "mistral"),
+            gemini_api_key=os.getenv(EnvironmentKeys.GEMINI_API_KEY, ""),
+            gemini_model=os.getenv(EnvironmentKeys.GEMINI_MODEL, "gemini-2.0-flash"),
         )
         self.embedding = EmbeddingSettings()
         self.document = DocumentSettings(

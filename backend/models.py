@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from .constants import DefaultValues, SnippetSettings
+from .constants import DefaultValues, ValidationLimits
 
 
 class JobStatus(str, Enum):
@@ -135,13 +135,13 @@ class QueryRequest(BaseModel):
     query: str = Field(
         ...,
         min_length=1,
-        max_length=SnippetSettings.MAX_LENGTH,
+        max_length=ValidationLimits.MAX_QUERY_LENGTH,
         description="The question to ask about uploaded documents",
     )
     limit: int = Field(
-        default=5,
+        default=15,
         ge=1,
-        le=20,
+        le=500,
         description="Maximum number of relevant chunks to retrieve",
     )
     document_id: str | None = Field(

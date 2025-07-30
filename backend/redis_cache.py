@@ -71,7 +71,7 @@ class RedisCacheService:
             Generated cache key
         """
         # Create a hash of all arguments
-        content = ":".join(str(arg) for arg in args)
+        content = ":".join(str(arg).strip() for arg in args)
         hash_value = hashlib.md5(content.encode()).hexdigest()
         return f"{self._prefix}{prefix}:{hash_value}"
 
