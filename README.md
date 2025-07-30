@@ -26,17 +26,17 @@
 
 | Component        | Tool                        | Status |
 |------------------|-----------------------------|--------|
-| PDF Parsing      | PDFPlumber                  | ✅ Phase 2 |
-| Text Chunking    | Custom with overlap         | ✅ Phase 2 |
-| Embeddings       | `sentence-transformers`     | ✅ Phase 3 |
-| Vector Store     | Qdrant (AsyncClient)        | ✅ Phase 3 |
-| Database         | PostgreSQL (AsyncPG)        | ✅ Phase 4 |
-| LLM              | Google Gemini API            | ✅ Phase 4 |
-| Backend          | FastAPI + Python            | ✅ Phase 4 |
-| Background Jobs  | Arq + Redis                 | ✅ Latest |
-| Frontend         | Streamlit                   | ✅ Phase 5 |
-| UX Polish        | Enhanced error handling     | ✅ Phase 6 |
-| Code Quality     | Black + Ruff               | ✅ Latest |
+| PDF Parsing      | PDFPlumber                  | ✅ |
+| Text Chunking    | Custom with overlap         | ✅ |
+| Embeddings       | `sentence-transformers`     | ✅ |
+| Vector Store     | Qdrant (AsyncClient)        | ✅ |
+| Database         | PostgreSQL (AsyncPG)        | ✅ |
+| LLM              | Google Gemini API            | ✅ |
+| Backend          | FastAPI + Python            | ✅ |
+| Background Jobs  | Arq + Redis                 | ✅ |
+| Frontend         | Streamlit                   | ✅ |
+| UX Polish        | Enhanced error handling     | ✅ |
+| Code Quality     | Black + Ruff               | ✅ |
 
 ---
 
@@ -281,25 +281,7 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/rag_pdf_chat
 
 ---
 
-## 🎯 Performance
-
-### Benchmarks (on MacBook M1 Pro)
-- **Document Upload**: ~2-3 seconds per PDF page
-- **Embedding Generation**: ~0.1-0.5 seconds per chunk
-- **Query Response**: ~2-5 seconds end-to-end
-- **Memory Usage**: ~200MB + model weights
-
-### Scalability
-- **Documents**: Tested with 100+ PDFs
-- **Concurrent Users**: Supports multiple simultaneous queries
-- **Storage**: Efficient vector compression with Qdrant
-- **Performance**: Async processing for optimal throughput
-
----
-
 ## 🎉 What's Next?
-
-The RAG PDF Chat application is **production-ready**! Optional enhancements you could add:
 
 - **🔐 User Authentication**: Multi-user support with document isolation
 - **📱 Mobile Interface**: Responsive design for mobile devices  
@@ -315,6 +297,3 @@ The RAG PDF Chat application is **production-ready**! Optional enhancements you 
 
 This project is open source and available under the [MIT License](LICENSE).
 
----
-
-**🎊 Congratulations! You now have a fully functional, production-ready RAG PDF Chat application with comprehensive testing and polished user experience!**
