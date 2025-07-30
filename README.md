@@ -291,9 +291,3 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/rag_pdf_chat
 - **🎛️ Model Selection**: Choose between different LLMs
 - **💾 Export Features**: Save conversations and insights
 
----
-
-## 📝 License
-
-This project is open source and available under the [MIT License](LICENSE).
-
