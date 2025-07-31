@@ -208,7 +208,7 @@ def sidebar_document_management():
 
     # Upload section
     st.sidebar.subheader("Upload Documents")
-    
+
     # Single file upload
     uploaded_file = st.sidebar.file_uploader(
         "Choose a PDF file (single upload)",
@@ -281,9 +281,8 @@ def sidebar_document_management():
                                     "Click the refresh button above to check status"
                                 )
                         else:
-                            st.error(
-                                f"Failed to get job status: {job_status.get('error', 'Unknown error')}"
-                            )
+                            error_msg = job_status.get("error", "Unknown error")
+                            st.error(f"Failed to get job status: {error_msg}")
             else:
                 st.sidebar.error(
                     f"❌ Upload failed: {result.get('error', 'Unknown error')}"
@@ -300,18 +299,22 @@ def sidebar_document_management():
 
     if uploaded_files:
         st.sidebar.write(f"**Selected files:** {len(uploaded_files)}")
-        
+
         # Show file details
-        for i, file in enumerate(uploaded_files):
+        for _i, file in enumerate(uploaded_files):
             file_size_mb = file.size / (1024 * 1024)
             status_icon = "✅" if file_size_mb <= MAX_FILE_SIZE_MB else "❌"
             st.sidebar.write(f"{status_icon} {file.name} ({file_size_mb:.1f}MB)")
-        
+
         # Check if all files are valid
-        invalid_files = [f for f in uploaded_files if f.size > MAX_FILE_SIZE_MB * 1024 * 1024]
+        invalid_files = [
+            f for f in uploaded_files if f.size > MAX_FILE_SIZE_MB * 1024 * 1024
+        ]
         if invalid_files:
-            st.sidebar.error(f"Some files are too large: {[f.name for f in invalid_files]}")
-        
+            st.sidebar.error(
+                f"Some files are too large: {[f.name for f in invalid_files]}"
+            )
+
         if st.sidebar.button("📤 Upload All Documents", type="primary"):
             if not st.session_state.backend_healthy:
                 st.sidebar.error("Backend not available")
@@ -325,35 +328,42 @@ def sidebar_document_management():
             with st.spinner(f"Uploading {len(uploaded_files)} documents..."):
                 upload_results = []
                 progress_bar = st.sidebar.progress(0)
-                
+
                 for i, file in enumerate(uploaded_files):
                     # Update progress
                     progress = (i + 1) / len(uploaded_files)
                     progress_bar.progress(progress)
-                    
+
                     # Upload file
                     result = st.session_state.client.upload_document(file)
-                    upload_results.append({
-                        "file": file.name,
-                        "result": result
-                    })
-                    
+                    upload_results.append({"file": file.name, "result": result})
+
                     # Show immediate feedback
                     if result.get("success", False):
                         st.sidebar.success(f"✅ {file.name} uploaded")
                     else:
-                        st.sidebar.error(f"❌ {file.name} failed: {result.get('error', 'Unknown error')}")
+                        st.sidebar.error(
+                            f"❌ {file.name} failed: {result.get('error', 'Unknown error')}"
+                        )
 
                 progress_bar.progress(1.0)
-                
+
                 # Show summary
-                successful_uploads = [r for r in upload_results if r["result"].get("success", False)]
-                failed_uploads = [r for r in upload_results if not r["result"].get("success", False)]
-                
-                st.sidebar.success(f"✅ {len(successful_uploads)} documents uploaded successfully")
+                successful_uploads = [
+                    r for r in upload_results if r["result"].get("success", False)
+                ]
+                failed_uploads = [
+                    r for r in upload_results if not r["result"].get("success", False)
+                ]
+
+                st.sidebar.success(
+                    f"✅ {len(successful_uploads)} documents uploaded successfully"
+                )
                 if failed_uploads:
-                    st.sidebar.error(f"❌ {len(failed_uploads)} documents failed to upload")
-                
+                    st.sidebar.error(
+                        f"❌ {len(failed_uploads)} documents failed to upload"
+                    )
+
                 # Show job IDs for successful uploads
                 if successful_uploads:
                     with st.sidebar.expander("📋 Upload Jobs", expanded=True):
@@ -451,6 +461,9 @@ def main_chat_interface():
         st.error("Please ensure the backend is running to use the chat interface.")
         return
 
+    # Always refresh documents when entering chat interface
+    load_documents()
+
     if not st.session_state.documents:
         st.info("📚 Upload some PDF documents first to start chatting!")
         return
@@ -467,15 +480,17 @@ def main_chat_interface():
         ]
         selected_doc = st.selectbox("Search in:", doc_options)
 
-        # Search parameters
-        num_chunks = st.slider("Max chunks to retrieve:", 1, 500, 15)
-        include_sources = st.checkbox("Show sources", value=True)
-
         # Statistics
         total_docs = len(st.session_state.documents)
         total_chunks = sum(
             doc.get("chunk_count", 0) for doc in st.session_state.documents
         )
+
+        # Search parameters - dynamically set max chunks based on available chunks
+        max_chunks = max(1, total_chunks)  # Ensure minimum of 1
+        default_chunks = min(15, max_chunks)  # Default to 15 or max available
+        num_chunks = st.slider("Max chunks to retrieve:", 1, max_chunks, default_chunks)
+        include_sources = st.checkbox("Show sources", value=True)
 
         st.markdown(
             f"""

@@ -28,10 +28,10 @@ class DefaultValues:
     CACHE_TTL_HOURS: Final[float] = 1.0
 
     # Search limits
-    RAG_SEARCH_LIMIT: Final[int] = 500  # Increased from 100 to allow more context
-    VECTOR_SEARCH_LIMIT: Final[int] = 1000
+    RAG_SEARCH_LIMIT: Final[int] = 10000  # Increased from 100 to allow more context
+    VECTOR_SEARCH_LIMIT: Final[int] = 10000
     MIN_SEARCH_LIMIT: Final[int] = 1
-    DEFAULT_CONTEXT_CHUNKS: Final[int] = 10  # Increased from 3
+    DEFAULT_CONTEXT_CHUNKS: Final[int] = 100  # Increased from 3
 
     # File processing
     MAX_FILE_SIZE_MB: Final[int] = 10

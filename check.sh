@@ -15,7 +15,7 @@ echo "🔧 Step 1: Formatting code..."
 # Run linting
 echo ""
 echo "🔍 Step 2: Running linting checks..."
-uv run ruff check backend/ frontend/
+uv run ruff check backend/ frontend/ --fix
 
 # Run tests if they exist
 echo ""

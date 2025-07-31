@@ -141,7 +141,7 @@ class QueryRequest(BaseModel):
     limit: int = Field(
         default=15,
         ge=1,
-        le=500,
+        le=DefaultValues.VECTOR_SEARCH_LIMIT,
         description="Maximum number of relevant chunks to retrieve",
     )
     document_id: str | None = Field(
