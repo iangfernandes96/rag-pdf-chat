@@ -55,3 +55,21 @@ docs/
 # Temporary files
 *.tmp
 *.temp 
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.env
+.env.*
+*.log
+node_modules/
+tests/
+*.pdf
+*.zip
+*.tar.gz
+*.sqlite3
+.DS_Store
+.vscode/
+.idea/
