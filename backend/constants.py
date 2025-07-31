@@ -221,9 +221,9 @@ class PerformanceThresholds:
 class ModelDefaults:
     """Default model and embedding settings."""
 
-    EMBEDDING_MODEL: Final[str] = (
-        "sentence-transformers/paraphrase-MiniLM-L3-v2"  # 2x faster
-    )
+    EMBEDDING_MODEL: Final[
+        str
+    ] = "sentence-transformers/paraphrase-MiniLM-L3-v2"  # 2x faster
     LLM_MODEL: Final[str] = "mistral"
     MAX_TOKENS: Final[int] = 2048
     TEMPERATURE: Final[float] = 0.7

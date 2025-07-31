@@ -57,7 +57,9 @@ services:
 
   # RAG PDF Chat Backend
   backend:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
     ports:
       - "8000:8000"
     env_file:
@@ -85,7 +87,9 @@ services:
 
   # Arq Worker for Background Processing
   worker:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
     env_file:
       - .env
     environment:
@@ -101,17 +105,17 @@ services:
       redis:
         condition: service_healthy
     entrypoint: [ "/app/entrypoint.sh" ]
-    command: [ "/app/.venv/bin/python", "start_arq_worker.py" ]
+    command: [ "python", "start_arq_worker.py" ]
     restart: unless-stopped
     deploy:
-      replicas: 1 # Reduced from 3 to save memory
+      replicas: 1
       resources:
         limits:
           memory: 3G
         reservations:
           memory: 1G
     healthcheck:
-      test: [ "CMD", "/app/.venv/bin/python", "-c", "import redis; r = redis.Redis.from_url('redis://redis:6379/0'); r.ping()" ]
+      test: [ "CMD", "python", "-c", "import redis; r = redis.Redis.from_url('redis://redis:6379/0'); r.ping()" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -119,7 +123,9 @@ services:
 
   # Streamlit Frontend
   frontend:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
     ports:
       - "8501:8501"
     environment:
@@ -130,9 +136,10 @@ services:
       - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false
       - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
     depends_on:
-      - backend
+      backend:
+        condition: service_started
     entrypoint: [ "/app/entrypoint.sh" ]
-    command: [ "streamlit", "run", "frontend/app.py", "--server.address", "0.0.0.0", "--server.port", "8501", "--server.headless", "true", "--browser.gatherUsageStats", "false" ]
+    command: [ "streamlit", "run", "frontend/app.py", "--server.address", "0.0.0.0", "--server.port", "8501" ]
     deploy:
       resources:
         limits:
