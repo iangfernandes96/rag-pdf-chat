@@ -224,7 +224,9 @@ def sidebar_document_management():
 
             # Validate file
             if uploaded_file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
-                st.sidebar.error(f"File too large! Maximum size: {MAX_FILE_SIZE_MB}MB")
+                st.sidebar.error(
+                    f"File too large! Maximum size: {MAX_FILE_SIZE_MB}MB"
+                )
                 return
 
             # Upload with progress
@@ -281,9 +283,8 @@ def sidebar_document_management():
                                     "Click the refresh button above to check status"
                                 )
                         else:
-                            st.error(
-                                f"Failed to get job status: {job_status.get('error', 'Unknown error')}"
-                            )
+                            error_msg = job_status.get('error', 'Unknown error')
+                            st.error(f"Failed to get job status: {error_msg}")
             else:
                 st.sidebar.error(
                     f"❌ Upload failed: {result.get('error', 'Unknown error')}"
@@ -451,6 +452,9 @@ def main_chat_interface():
         st.error("Please ensure the backend is running to use the chat interface.")
         return
 
+    # Always refresh documents when entering chat interface
+    load_documents()
+
     if not st.session_state.documents:
         st.info("📚 Upload some PDF documents first to start chatting!")
         return
@@ -467,15 +471,19 @@ def main_chat_interface():
         ]
         selected_doc = st.selectbox("Search in:", doc_options)
 
-        # Search parameters
-        num_chunks = st.slider("Max chunks to retrieve:", 1, 500, 15)
-        include_sources = st.checkbox("Show sources", value=True)
-
         # Statistics
         total_docs = len(st.session_state.documents)
         total_chunks = sum(
             doc.get("chunk_count", 0) for doc in st.session_state.documents
         )
+
+        # Search parameters - dynamically set max chunks based on available chunks
+        max_chunks = max(1, total_chunks)  # Ensure minimum of 1
+        default_chunks = min(15, max_chunks)  # Default to 15 or max available
+        num_chunks = st.slider(
+            "Max chunks to retrieve:", 1, max_chunks, default_chunks
+        )
+        include_sources = st.checkbox("Show sources", value=True)
 
         st.markdown(
             f"""
