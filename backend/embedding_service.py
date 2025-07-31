@@ -61,7 +61,7 @@ class EmbeddingService:
         self.model_name = model_name or settings.embedding.model_name
         self.batch_size = settings.embedding.batch_size
         self.model: SentenceTransformer | None = None
-        self._executor = ThreadPoolExecutor(max_workers=8)
+        self._executor = ThreadPoolExecutor(max_workers=4)  # Reduced from 8
         self.validator = ConfigValidator()
 
     def _handle_encoding_error(
