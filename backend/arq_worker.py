@@ -235,7 +235,7 @@ class WorkerSettings:
     max_jobs = 4  # Reduced from 10 to prevent resource contention
     job_timeout = 1800  # 30 minutes
     keep_result = 3600  # 1 hour
-    max_tries = 3
+    max_tries = 2
     retry_delay = 60  # 1 minute
 
 

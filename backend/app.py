@@ -238,6 +238,7 @@ async def upload_document(file: UploadFile = File(...)):
         )
 
         # Queue document processing task using Arq
+        # Arq automatically distributes jobs across available workers
         await app.state.arq_pool.enqueue_job(
             "process_document", content, file.filename, job_id
         )
