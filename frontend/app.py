@@ -207,15 +207,17 @@ def sidebar_document_management():
     st.sidebar.header("📚 Document Management")
 
     # Upload section
-    st.sidebar.subheader("Upload Document")
+    st.sidebar.subheader("Upload Documents")
+    
+    # Single file upload
     uploaded_file = st.sidebar.file_uploader(
-        "Choose a PDF file",
+        "Choose a PDF file (single upload)",
         type=["pdf"],
         help=f"Maximum file size: {MAX_FILE_SIZE_MB}MB",
     )
 
     if uploaded_file is not None:
-        if st.sidebar.button("📤 Upload Document", type="primary"):
+        if st.sidebar.button("📤 Upload Single Document", type="primary"):
             if not st.session_state.backend_healthy:
                 st.sidebar.error("Backend not available")
                 return
@@ -286,6 +288,78 @@ def sidebar_document_management():
                 st.sidebar.error(
                     f"❌ Upload failed: {result.get('error', 'Unknown error')}"
                 )
+
+    # Bulk file upload
+    st.sidebar.subheader("Bulk Upload")
+    uploaded_files = st.sidebar.file_uploader(
+        "Choose multiple PDF files (bulk upload)",
+        type=["pdf"],
+        accept_multiple_files=True,
+        help=f"Maximum file size per file: {MAX_FILE_SIZE_MB}MB",
+    )
+
+    if uploaded_files:
+        st.sidebar.write(f"**Selected files:** {len(uploaded_files)}")
+        
+        # Show file details
+        for i, file in enumerate(uploaded_files):
+            file_size_mb = file.size / (1024 * 1024)
+            status_icon = "✅" if file_size_mb <= MAX_FILE_SIZE_MB else "❌"
+            st.sidebar.write(f"{status_icon} {file.name} ({file_size_mb:.1f}MB)")
+        
+        # Check if all files are valid
+        invalid_files = [f for f in uploaded_files if f.size > MAX_FILE_SIZE_MB * 1024 * 1024]
+        if invalid_files:
+            st.sidebar.error(f"Some files are too large: {[f.name for f in invalid_files]}")
+        
+        if st.sidebar.button("📤 Upload All Documents", type="primary"):
+            if not st.session_state.backend_healthy:
+                st.sidebar.error("Backend not available")
+                return
+
+            if invalid_files:
+                st.sidebar.error("Please remove large files before uploading")
+                return
+
+            # Upload all files
+            with st.spinner(f"Uploading {len(uploaded_files)} documents..."):
+                upload_results = []
+                progress_bar = st.sidebar.progress(0)
+                
+                for i, file in enumerate(uploaded_files):
+                    # Update progress
+                    progress = (i + 1) / len(uploaded_files)
+                    progress_bar.progress(progress)
+                    
+                    # Upload file
+                    result = st.session_state.client.upload_document(file)
+                    upload_results.append({
+                        "file": file.name,
+                        "result": result
+                    })
+                    
+                    # Show immediate feedback
+                    if result.get("success", False):
+                        st.sidebar.success(f"✅ {file.name} uploaded")
+                    else:
+                        st.sidebar.error(f"❌ {file.name} failed: {result.get('error', 'Unknown error')}")
+
+                progress_bar.progress(1.0)
+                
+                # Show summary
+                successful_uploads = [r for r in upload_results if r["result"].get("success", False)]
+                failed_uploads = [r for r in upload_results if not r["result"].get("success", False)]
+                
+                st.sidebar.success(f"✅ {len(successful_uploads)} documents uploaded successfully")
+                if failed_uploads:
+                    st.sidebar.error(f"❌ {len(failed_uploads)} documents failed to upload")
+                
+                # Show job IDs for successful uploads
+                if successful_uploads:
+                    with st.sidebar.expander("📋 Upload Jobs", expanded=True):
+                        for result in successful_uploads:
+                            job_id = result["result"].get("job_id", "Unknown")
+                            st.write(f"**{result['file']}:** Job ID {job_id[:8]}...")
 
     # Show active job status if exists
     if st.session_state.active_job_id:
